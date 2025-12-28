@@ -1,0 +1,86 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. USER (KHUSUS KASIR & OWNER)
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String?
+  googleId  String?  @unique
+  role      String   @default("cashier")
+  createdAt DateTime @default(now())
+}
+
+// 2. MEJA & QR MANAGEMENT
+model Table {
+  id       Int     @id @default(autoincrement())
+  name     String
+  location String?
+  qrCode   String  @unique
+  isActive Boolean @default(true)
+  orders   Order[]
+}
+
+// 3. MENU MAKANAN
+model Product {
+  id          Int         @id @default(autoincrement())
+  name        String
+  category    String
+  price       Int
+  image       String?
+  description String?
+  isActive    Boolean     @default(true)
+  orderItems  OrderItem[]
+}
+
+// 4. BANNER PROMOSI
+model Banner {
+  id            Int     @id @default(autoincrement())
+  title         String
+  subtitle      String?
+  highlightText String?
+  image         String
+  isActive      Boolean @default(true)
+}
+
+// 5. TRANSAKSI (HEADER)
+model Order {
+  id            Int         @id @default(autoincrement())
+  transactionCode String    @unique
+  expiresAt     DateTime?
+  createdAt     DateTime    @default(now())
+  
+  tableId       Int?
+  table         Table?      @relation(fields: [tableId], references: [id])
+  
+  customerName  String
+  orderType     String
+  paymentMethod String?
+  paymentStatus String      @default("Unpaid")
+  status        String      @default("Pending")
+  totalAmount   Int
+  estimatedTime String?
+  globalNote    String?
+  
+  items         OrderItem[]
+}
+
+// 6. DETAIL TRANSAKSI (ITEM)
+model OrderItem {
+  id            Int     @id @default(autoincrement())
+  orderId       Int
+  order         Order   @relation(fields: [orderId], references: [id])
+  productId     Int
+  product       Product @relation(fields: [productId], references: [id])
+  quantity      Int
+  priceSnapshot Int
+  note          String?
+}
