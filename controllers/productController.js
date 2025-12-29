@@ -65,6 +65,10 @@ const createProduct = async (req, res) => {
                 isActive: true // Default true as per requirement
             }
         });
+
+        // Trigger update real-time
+        req.io.emit('products_updated');
+
         res.status(201).json({
             success: true,
             message: "Produk berhasil ditambahkan",
@@ -105,6 +109,9 @@ const updateProduct = async (req, res) => {
             }
         });
 
+        // Trigger update real-time
+        req.io.emit('products_updated');
+
         res.status(200).json({
             success: true,
             message: "Produk berhasil diupdate",
@@ -127,6 +134,9 @@ const deleteProduct = async (req, res) => {
         await prisma.product.delete({
             where: { id: Number(id) }
         });
+
+        // Trigger update real-time
+        req.io.emit('products_updated');
 
         res.status(200).json({
             success: true,
