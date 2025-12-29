@@ -1,27 +1,24 @@
+require('dotenv').config(); // Load environment variables dari .env
 const express = require('express');
 const cors = require('cors');
+const productRoutes = require('./routes/productRoutes');
+
 const app = express();
-const port = 3000; // Port pintu masuk backend
+const PORT = process.env.PORT || 3000;
 
-// Middleware (Agar bisa baca JSON dari Kotlin/Next.js)
-app.use(cors());
-app.use(express.json());
+// --- MIDDLEWARE ---
+app.use(cors()); // PENTING: Supaya Next.js dan Kotlin bisa akses API ini
+app.use(express.json()); // Supaya bisa baca data JSON dari request body
 
-// Rute Cek Kesehatan (Ping Test)
+// --- ROUTE UTAMA (CEK SERVER) ---
 app.get('/', (req, res) => {
-  res.send('Backend Skripsi Berjalan Lancar! 🚀');
+  res.send('Server Backend Kasir Siap! 🚀 Silakan akses /api/products');
 });
 
-// Contoh Rute API untuk Kasir/PWA nanti
-app.get('/api/test', (req, res) => {
-  res.json({
-    message: "Ini data dari backend",
-    status: "success",
-    waktu: new Date()
-  });
-});
+// --- API ROUTES ---
+app.use('/api/products', productRoutes);
 
-// Jalankan Server
-app.listen(port, () => {
-  console.log(`Server nyala di http://localhost:${port}`);
+// --- MENJALANKAN SERVER ---
+app.listen(PORT, () => {
+  console.log(`✅ Server berjalan di http://localhost:${PORT}`);
 });
