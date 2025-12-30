@@ -17,6 +17,21 @@ async function main() {
     console.log(`Verifying category: ${category.name}`);
   }
 
+  // Seeding Locations
+  const locations = ["Indoor", "Outdoor", "Lantai 2", "VIP"];
+  console.log('Start seeding locations...');
+
+  for (const locationName of locations) {
+    const location = await prisma.location.upsert({
+      where: { name: locationName },
+      update: {},
+      create: {
+        name: locationName,
+      },
+    });
+    console.log(`Verifying location: ${location.name}`);
+  }
+
   console.log('Seeding finished.');
 }
 

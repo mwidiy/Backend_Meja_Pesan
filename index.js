@@ -46,6 +46,8 @@ app.get('/', (req, res) => {
 // --- API ROUTES ---
 app.use('/api/products', productRoutes);
 app.use('/api/categories', require('./routes/categoryRoutes'));
+app.use('/api/locations', require('./routes/locationRoutes'));
+app.use('/api/tables', require('./routes/tableRoutes'));
 app.use('/api/banners', bannerRoutes);
 
 // --- MENJALANKAN SERVER ---

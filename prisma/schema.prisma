@@ -20,13 +20,22 @@ model User {
 }
 
 // 2. MEJA & QR MANAGEMENT
+model Location {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  tables    Table[]
+}
+
 model Table {
-  id       Int     @id @default(autoincrement())
-  name     String
-  location String?
-  qrCode   String  @unique
-  isActive Boolean @default(true)
-  orders   Order[]
+  id         Int      @id @default(autoincrement())
+  name       String
+  qrCode     String   @unique
+  isActive   Boolean  @default(true)
+  orders     Order[]
+
+  // Relasi ke Location
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
 }
 
 // 3. MENU MAKANAN
