@@ -30,10 +30,22 @@ model Table {
 }
 
 // 3. MENU MAKANAN
+// 3. KATEGORI MENU (NEW)
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique // Unique agar tidak ada kategori kembar
+  products  Product[]
+}
+
+// 4. MENU MAKANAN (UPDATED)
 model Product {
   id          Int         @id @default(autoincrement())
   name        String
-  category    String
+  
+  // Relasi ke Category
+  categoryId  Int
+  category    Category    @relation(fields: [categoryId], references: [id])
+
   price       Int
   image       String?
   description String?

@@ -40,17 +40,27 @@ const removeImage = (filePath) => {
 const getAllProducts = async (req, res) => {
     try {
         const products = await prisma.product.findMany({
-            // Filter where DIHAPUS agar semua data muncul
+            // Include category relation
+            include: {
+                category: true
+            },
             orderBy: [
-                { category: 'asc' }, // Urutkan jenisnya dulu (Makanan -> Minuman)
-                { name: 'asc' }      // Lalu urutkan abjad namanya (A -> Z)
+                { category: { name: 'asc' } }, // Urutkan berdasarkan nama kategori
+                { name: 'asc' }
             ]
         });
+
+        // Mapping agar frontend tetap menerima 'category' sebagai String (bukan object)
+        const formattedProducts = products.map(product => ({
+            ...product,
+            category: product.category ? product.category.name : null, // Flatten
+            categoryId: product.categoryId // Optional: kirim juga ID-nya jika butuh
+        }));
 
         res.status(200).json({
             success: true,
             message: "List semua menu berhasil diambil",
-            data: products,
+            data: formattedProducts,
         });
     } catch (error) {
         console.error("Error fetching products:", error);
@@ -68,16 +78,23 @@ const getProductById = async (req, res) => {
     const { id } = req.params;
     try {
         const product = await prisma.product.findUnique({
-            where: { id: Number(id) }
+            where: { id: Number(id) },
+            include: { category: true }
         });
 
         if (!product) {
             return res.status(404).json({ success: false, message: "Produk tidak ditemukan" });
         }
 
+        // Flatten logic if needed for consistency
+        const formattedProduct = {
+            ...product,
+            category: product.category ? product.category.name : null
+        };
+
         res.status(200).json({
             success: true,
-            data: product
+            data: formattedProduct
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -87,8 +104,8 @@ const getProductById = async (req, res) => {
 // POST /api/products
 // Tambah Menu Baru
 const createProduct = async (req, res) => {
-    const { name, category, price, description } = req.body;
-    let imageUrl = req.body.image; // Bisa dari input manual jika ada
+    const { name, categoryId, price, description } = req.body;
+    let imageUrl = req.body.image;
 
     if (req.file) {
         imageUrl = `http://${req.headers.host}/uploads/${req.file.filename}`;
@@ -98,13 +115,23 @@ const createProduct = async (req, res) => {
         const newProduct = await prisma.product.create({
             data: {
                 name,
-                category,
+                // Gunakan categoryId (Int)
+                categoryId: parseInt(categoryId),
                 price: Number(price),
                 description,
                 image: imageUrl,
-                isActive: true // Default true as per requirement
+                isActive: true
+            },
+            include: { // Include to return full object immediately
+                category: true
             }
         });
+
+        // Format result for consistency?
+        const formattedProduct = {
+            ...newProduct,
+            category: newProduct.category ? newProduct.category.name : null
+        };
 
         // Trigger update real-time
         req.io.emit('products_updated');
@@ -112,7 +139,7 @@ const createProduct = async (req, res) => {
         res.status(201).json({
             success: true,
             message: "Produk berhasil ditambahkan",
-            data: newProduct
+            data: formattedProduct
         });
     } catch (error) {
         console.error("Error creating product:", error);
@@ -128,7 +155,7 @@ const createProduct = async (req, res) => {
 // Edit Menu
 const updateProduct = async (req, res) => {
     const { id } = req.params;
-    const { name, category, price, description, isActive } = req.body;
+    const { name, categoryId, price, description, isActive } = req.body;
     let imageUrl = req.body.image;
 
     if (req.file) {
@@ -136,13 +163,11 @@ const updateProduct = async (req, res) => {
     }
 
     try {
-        // Cek apakah produk ada
         const existingProduct = await prisma.product.findUnique({ where: { id: Number(id) } });
         if (!existingProduct) {
             return res.status(404).json({ success: false, message: "Produk tidak ditemukan" });
         }
 
-        // Jika ada file baru yang diupload, hapus gambar lama
         if (req.file && existingProduct.image) {
             removeImage(existingProduct.image);
         }
@@ -151,14 +176,21 @@ const updateProduct = async (req, res) => {
             where: { id: Number(id) },
             data: {
                 name: name !== undefined ? name : undefined,
-                category: category !== undefined ? category : undefined,
+                categoryId: categoryId !== undefined ? parseInt(categoryId) : undefined,
                 price: price !== undefined ? Number(price) : undefined,
                 description: description !== undefined ? description : undefined,
-                image: imageUrl !== undefined ? imageUrl : undefined, // Update jika ada gambar baru/url baru
-                // Handle parsing boolean untuk isActive (terutama dari form-data)
+                image: imageUrl !== undefined ? imageUrl : undefined,
                 isActive: isActive !== undefined ? (String(isActive) === 'true') : undefined
+            },
+            include: {
+                category: true
             }
         });
+
+        const formattedProduct = {
+            ...updatedProduct,
+            category: updatedProduct.category ? updatedProduct.category.name : null
+        };
 
         // Trigger update real-time
         req.io.emit('products_updated');
@@ -166,7 +198,7 @@ const updateProduct = async (req, res) => {
         res.status(200).json({
             success: true,
             message: "Produk berhasil diupdate",
-            data: updatedProduct
+            data: formattedProduct
         });
     } catch (error) {
         console.error("Error updating product:", error);

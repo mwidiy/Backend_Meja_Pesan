@@ -44,6 +44,7 @@ app.get('/', (req, res) => {
 
 // --- API ROUTES ---
 app.use('/api/products', productRoutes);
+app.use('/api/categories', require('./routes/categoryRoutes'));
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen
