@@ -20,6 +20,7 @@ const PORT = process.env.PORT || 3000;
 // --- MIDDLEWARE ---
 app.use(cors()); // PENTING: Supaya Next.js dan Kotlin bisa akses API ini
 app.use(express.json()); // Supaya bisa baca data JSON dari request body
+app.use('/uploads', express.static('public/images')); // Akses gambar publik
 
 // Middleware agar io bisa dipakai di controller
 app.use((req, res, next) => {

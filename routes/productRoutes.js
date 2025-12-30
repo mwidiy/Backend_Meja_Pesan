@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
 
+const upload = require('../middleware/upload');
+
 // GET /api/products
 router.get('/', productController.getAllProducts);
 
@@ -9,10 +11,10 @@ router.get('/', productController.getAllProducts);
 router.get('/:id', productController.getProductById);
 
 // POST /api/products
-router.post('/', productController.createProduct);
+router.post('/', upload.single('image'), productController.createProduct);
 
 // PUT /api/products/:id
-router.put('/:id', productController.updateProduct);
+router.put('/:id', upload.single('image'), productController.updateProduct);
 
 // DELETE /api/products/:id
 router.delete('/:id', productController.deleteProduct);
