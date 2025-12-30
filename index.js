@@ -4,6 +4,7 @@ const cors = require('cors');
 const http = require('http'); // Import HTTP
 const { Server } = require("socket.io"); // Import Socket.IO
 const productRoutes = require('./routes/productRoutes');
+const bannerRoutes = require('./routes/bannerRoutes');
 
 const app = express();
 const server = http.createServer(app); // Bungkus app express dengan HTTP server
@@ -45,6 +46,7 @@ app.get('/', (req, res) => {
 // --- API ROUTES ---
 app.use('/api/products', productRoutes);
 app.use('/api/categories', require('./routes/categoryRoutes'));
+app.use('/api/banners', bannerRoutes);
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen
