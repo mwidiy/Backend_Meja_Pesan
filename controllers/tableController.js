@@ -39,6 +39,7 @@ exports.createTable = async (req, res) => {
                 locationId: parseInt(locationId),
                 qrCode: qrString,
             },
+            include: { location: true },
         });
         res.status(201).json(table);
     } catch (error) {
@@ -60,6 +61,24 @@ exports.updateTable = async (req, res) => {
         const table = await prisma.table.update({
             where: { id: parseInt(id) },
             data: updateData,
+            include: { location: true },
+        });
+        res.json(table);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Update table status
+exports.updateTableStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { isActive } = req.body;
+
+        const table = await prisma.table.update({
+            where: { id: parseInt(id) },
+            data: { isActive },
+            include: { location: true },
         });
         res.json(table);
     } catch (error) {
