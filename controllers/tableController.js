@@ -2,11 +2,20 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const crypto = require('crypto');
 
-// Helper Generate QR
-const generateQRCode = () => {
-    const timestamp = Date.now().toString().slice(-8); // Ambil 8 digit terakhir timestamp
-    const random = crypto.randomBytes(2).toString('hex').toUpperCase(); // 4 karakter hex random
-    return `TBL-${timestamp}-${random}`;
+// Helper: Slugify Name (Huruf kecil, spasi jadi strip)
+const createSlug = (name) => {
+    return name.toString().toLowerCase().trim().replace(/\s+/g, '-');
+};
+
+// Helper: Generate Random Alphanumeric String
+const generateRandomString = (length) => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    const bytes = crypto.randomBytes(length);
+    for (let i = 0; i < length; i++) {
+        result += chars[bytes[i] % chars.length];
+    }
+    return result;
 };
 
 // Get all tables
@@ -31,13 +40,16 @@ exports.createTable = async (req, res) => {
             return res.status(400).json({ error: "Name and Location ID are required" });
         }
 
-        const qrString = generateQRCode();
+        // Generate QR Logic: TBL-[SLUG_NAMA]-[RANDOM_STRING]
+        const slug = createSlug(name);
+        const randomStr = generateRandomString(4); // 4 digit alphanumeric
+        const qrCode = `TBL-${slug}-${randomStr}`;
 
         const table = await prisma.table.create({
             data: {
                 name,
                 locationId: parseInt(locationId),
-                qrCode: qrString,
+                qrCode, // Auto-generated
             },
             include: { location: true },
         });
@@ -57,6 +69,8 @@ exports.updateTable = async (req, res) => {
         if (name !== undefined) updateData.name = name;
         if (locationId !== undefined) updateData.locationId = parseInt(locationId);
         if (isActive !== undefined) updateData.isActive = isActive;
+
+        // Note: qrCode is NOT updated to preserve printed stickers
 
         const table = await prisma.table.update({
             where: { id: parseInt(id) },
