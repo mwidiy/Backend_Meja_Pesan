@@ -39,8 +39,10 @@ const removeImage = (filePath) => {
 // GET /api/banners
 // Ambil semua banner
 const getAllBanners = async (req, res) => {
+    const { status } = req.query;
     try {
         const banners = await prisma.banner.findMany({
+            where: status === 'active' ? { isActive: true } : {},
             orderBy: { createdAt: 'asc' } // Urutkan dari yang terlama (Ascending)
         });
 

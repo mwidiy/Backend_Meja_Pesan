@@ -38,8 +38,10 @@ const removeImage = (filePath) => {
 // GET /api/products
 // Ambil semua produk yang aktif
 const getAllProducts = async (req, res) => {
+    const { status } = req.query;
     try {
         const products = await prisma.product.findMany({
+            where: status === 'active' ? { isActive: true } : {},
             // Include category relation
             include: {
                 category: true
