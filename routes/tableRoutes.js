@@ -5,6 +5,7 @@ const tableController = require('../controllers/tableController');
 // Define routes
 router.get('/', tableController.getAllTables);
 router.post('/', tableController.createTable);
+router.get('/scan/:code', tableController.getTableByQrCode);
 router.put('/:id', tableController.updateTable);
 router.patch('/:id/status', tableController.updateTableStatus);
 router.delete('/:id', tableController.deleteTable);

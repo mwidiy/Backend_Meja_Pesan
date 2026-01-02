@@ -31,6 +31,27 @@ exports.getAllTables = async (req, res) => {
     }
 };
 
+// Get table by QR Code (Scan)
+exports.getTableByQrCode = async (req, res) => {
+    try {
+        const { code } = req.params;
+
+        // Cari meja berdasarkan qrCode
+        const table = await prisma.table.findFirst({
+            where: { qrCode: code },
+            include: { location: true }
+        });
+
+        if (!table) {
+            return res.status(404).json({ message: "Meja tidak ditemukan" });
+        }
+
+        res.status(200).json(table);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 // Create a new table
 exports.createTable = async (req, res) => {
     try {
