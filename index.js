@@ -49,6 +49,7 @@ app.use('/api/categories', require('./routes/categoryRoutes'));
 app.use('/api/locations', require('./routes/locationRoutes'));
 app.use('/api/tables', require('./routes/tableRoutes'));
 app.use('/api/banners', bannerRoutes);
+app.use('/api/orders', require('./routes/orderRoutes'));
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen
