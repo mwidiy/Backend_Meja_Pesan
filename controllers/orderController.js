@@ -17,6 +17,8 @@ const generateTransactionCode = () => {
 
 const createOrder = async (req, res) => {
     try {
+        console.log('Incoming Order Payload:', JSON.stringify(req.body, null, 2));
+
         const {
             customerName,
             tableId,
@@ -32,25 +34,40 @@ const createOrder = async (req, res) => {
         }
 
         // 2. Parsed Data & Logic
-        // Handle Table ID & Order Type
         let parsedTableId = null;
         let finalOrderType = orderType;
 
-        if (tableId) {
-            parsedTableId = parseInt(tableId);
-            // GUNAKAN req.body.tableId tersebut (Jangan diubah! Ini berarti user pesan dari meja tertentu).
-            // Kita tidak memaksa orderType jadi 'Dine In' lagi, agar user bisa pesan Takeaway dari meja.
-        } else {
-            // Jika Takeaway / Delivery (tidak ada tableId dari FE)
-            // Cari meja "Counter Pickup"
-            const pickupTable = await prisma.table.findUnique({
-                where: { qrCode: 'COUNTER-PICKUP' }
-            });
-
-            if (pickupTable) {
-                parsedTableId = pickupTable.id;
+        // FIXED LOGIC: 
+        // HANYA set ke default 'Counter Pickup' JIKA req.body.tableId itu KOSONG (null/undefined).
+        // 2. Parsed Data & Logic
+        // AMBIL ID DARI REQUEST
+        let finalTableId = req.body.tableId;
+        // HANYA JIKA Table ID kosong/null, BARU kita cari meja default
+        if (!finalTableId) {
+            if (orderType === 'takeaway') {
+                // Cari meja default takeaway (jika ada logic ini)
+                // Default ke Counter Pickup sesuai logic lama
+                const pickupTable = await prisma.table.findUnique({
+                    where: { qrCode: 'COUNTER-PICKUP' }
+                });
+                if (pickupTable) {
+                    finalTableId = pickupTable.id.toString();
+                }
+            } else if (orderType === 'delivery') {
+                // Default ke Counter Pickup (atau logic lain jika ada)
+                const pickupTable = await prisma.table.findUnique({
+                    where: { qrCode: 'COUNTER-PICKUP' }
+                });
+                if (pickupTable) {
+                    finalTableId = pickupTable.id.toString();
+                }
             }
-            // finalOrderType tetap sesuai request (Takeaway/Delivery)
+        }
+
+        // If finalTableId is still not set, it means no specific table was provided and no default was found/applicable.
+        // In this case, parsedTableId remains null, which is fine for orders not tied to a physical table.
+        if (finalTableId) {
+            parsedTableId = parseInt(finalTableId);
         }
 
         // 3. Logic Note Handling (Deleted - separated into note & deliveryAddress)
@@ -78,7 +95,7 @@ const createOrder = async (req, res) => {
                     transactionCode,
                     customerName,
                     // Map tableId jika valid (Relasi ke Table)
-                    tableId: parsedTableId,
+                    tableId: finalTableId ? parseInt(finalTableId) : null,
                     orderType: finalOrderType,
                     totalAmount: calculatedTotal,
                     note: notes,
