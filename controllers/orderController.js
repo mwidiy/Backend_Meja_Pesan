@@ -24,8 +24,8 @@ const createOrder = async (req, res) => {
             tableId,
             orderType,
             items,
-            notes,
-            deliveryLocation
+            note,
+            deliveryAddress
         } = req.body;
 
         // 1. Validasi Input Dasar
@@ -98,8 +98,8 @@ const createOrder = async (req, res) => {
                     tableId: finalTableId ? parseInt(finalTableId) : null,
                     orderType: finalOrderType,
                     totalAmount: calculatedTotal,
-                    note: notes,
-                    deliveryAddress: deliveryLocation,
+                    note: note || "",
+                    deliveryAddress: deliveryAddress || "",
                     status: 'Pending',
                     paymentStatus: 'Unpaid',
                     items: {
