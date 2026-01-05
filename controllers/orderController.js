@@ -31,16 +31,20 @@ const createOrder = async (req, res) => {
             return res.status(400).json({ error: 'Customer name dan items harus diisi.' });
         }
 
-        // 2. Logic Note Handling
-        // Gabungkan deliveryLocation ke globalNote jika ada
-        let globalNote = notes || '';
-        if (deliveryLocation) {
-            const deliveryNote = `Lokasi: ${deliveryLocation}`;
-            globalNote = globalNote ? `${deliveryNote}. Catatan: ${globalNote}` : deliveryNote;
+        // 2. Parsed Data & Logic
+        // Handle Table ID & Order Type
+        let parsedTableId = null;
+        let finalOrderType = orderType;
+
+        if (tableId) {
+            parsedTableId = parseInt(tableId);
+            // Validasi: Jika ada tableId (berarti scan QR), pastikan orderType = Dine In
+            finalOrderType = 'Dine In';
         }
 
-        // 3. Hitung Total Amount dari items & Siapkan Data Items
-        // Kita hitung di backend untuk memastikan konsistensi (opsional: bisa juga terima dari FE, tapi lebih aman hitung ulang)
+        // 3. Logic Note Handling (Deleted - separated into note & deliveryAddress)
+
+        // 4. Hitung Total Amount dari items & Siapkan Data Items
         let calculatedTotal = 0;
         const orderItemsData = items.map(item => {
             const itemTotal = item.price * item.quantity;
@@ -49,27 +53,25 @@ const createOrder = async (req, res) => {
                 productId: item.productId,
                 quantity: item.quantity,
                 priceSnapshot: item.price, // Harga saat checkout
-                // note: item.note // Jika ada per-item note di masa depan
+                // note: item.note
             };
         });
 
-        // 4. Generate Transaction Code Unik
+        // 5. Generate Transaction Code Unik
         const transactionCode = generateTransactionCode();
 
-        // 5. Prisma Transaction (Atomic Create)
-        // Kita gunakan nested write agar Order dan OrderItem tersimpan bersamaan dalam satu transaksi database.
+        // 6. Prisma Transaction (Atomic Create)
         const newOrder = await prisma.$transaction(async (tx) => {
-            // Cek apakah code unik, jika collision (sangat jarang), prisma akan throw error unique constraint.
-            // Di production yang padat, mungkin perlu retry mechanism, tapi untuk sekarang cukup generate sekali.
-
             const order = await tx.order.create({
                 data: {
                     transactionCode,
                     customerName,
-                    tableId: tableId ? parseInt(tableId) : null,
-                    orderType,
+                    // Map tableId jika valid (Relasi ke Table)
+                    tableId: parsedTableId,
+                    orderType: finalOrderType,
                     totalAmount: calculatedTotal,
-                    globalNote,
+                    note: notes,
+                    deliveryAddress: deliveryLocation,
                     status: 'Pending',
                     paymentStatus: 'Unpaid',
                     items: {
@@ -89,8 +91,7 @@ const createOrder = async (req, res) => {
             return order;
         });
 
-        // 6. Real-time Trigger (Opsional)
-        // Pastikan req.io ada sebelum emit
+        // 7. Real-time Trigger
         if (req.io) {
             req.io.emit('new_order', newOrder);
             console.log(`📡 Emitted 'new_order': ${newOrder.transactionCode}`);
@@ -127,7 +128,11 @@ const getAllOrders = async (req, res) => {
                         product: true // Agar admin tahu nama produk yang dipesan
                     }
                 },
-                table: true // Agar admin tahu ini meja nomor berapa
+                table: {
+                    include: {
+                        location: true
+                    }
+                }
             }
         });
 

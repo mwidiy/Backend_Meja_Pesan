@@ -90,7 +90,8 @@ model Order {
   status        String      @default("Pending")
   totalAmount   Int
   estimatedTime String?
-  globalNote    String?
+  note          String?
+  deliveryAddress String?
   
   items         OrderItem[]
 }
