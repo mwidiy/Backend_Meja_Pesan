@@ -32,6 +32,28 @@ async function main() {
     console.log(`Verifying location: ${location.name}`);
   }
 
+  // Seeding Special Table for Takeaway/Delivery
+  console.log('Seeding special table: Counter Pickup...');
+  const indoorLocation = await prisma.location.findUnique({
+    where: { name: 'Indoor' }
+  });
+
+  if (indoorLocation) {
+    await prisma.table.upsert({
+      where: { qrCode: 'COUNTER-PICKUP' },
+      update: {},
+      create: {
+        name: 'Counter Pickup',
+        qrCode: 'COUNTER-PICKUP',
+        locationId: indoorLocation.id,
+        isActive: true
+      }
+    });
+    console.log('Counter Pickup table verified.');
+  } else {
+    console.log('Warning: Indoor location not found, skipping Counter Pickup table.');
+  }
+
   console.log('Seeding finished.');
 }
 

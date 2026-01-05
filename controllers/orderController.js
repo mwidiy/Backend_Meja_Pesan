@@ -38,8 +38,19 @@ const createOrder = async (req, res) => {
 
         if (tableId) {
             parsedTableId = parseInt(tableId);
-            // Validasi: Jika ada tableId (berarti scan QR), pastikan orderType = Dine In
-            finalOrderType = 'Dine In';
+            // GUNAKAN req.body.tableId tersebut (Jangan diubah! Ini berarti user pesan dari meja tertentu).
+            // Kita tidak memaksa orderType jadi 'Dine In' lagi, agar user bisa pesan Takeaway dari meja.
+        } else {
+            // Jika Takeaway / Delivery (tidak ada tableId dari FE)
+            // Cari meja "Counter Pickup"
+            const pickupTable = await prisma.table.findUnique({
+                where: { qrCode: 'COUNTER-PICKUP' }
+            });
+
+            if (pickupTable) {
+                parsedTableId = pickupTable.id;
+            }
+            // finalOrderType tetap sesuai request (Takeaway/Delivery)
         }
 
         // 3. Logic Note Handling (Deleted - separated into note & deliveryAddress)
@@ -84,7 +95,11 @@ const createOrder = async (req, res) => {
                             product: true
                         }
                     },
-                    table: true
+                    table: {
+                        include: {
+                            location: true
+                        }
+                    }
                 }
             });
 
@@ -171,7 +186,11 @@ const updateOrderStatus = async (req, res) => {
                 items: {
                     include: { product: true }
                 },
-                table: true
+                table: {
+                    include: {
+                        location: true
+                    }
+                }
             }
         });
 
