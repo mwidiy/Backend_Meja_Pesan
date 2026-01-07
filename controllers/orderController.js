@@ -25,7 +25,9 @@ const createOrder = async (req, res) => {
             orderType,
             items,
             note,
-            deliveryAddress
+            deliveryAddress,
+            paymentMethod,
+            paymentStatus
         } = req.body;
 
         // 1. Validasi Input Dasar
@@ -101,7 +103,8 @@ const createOrder = async (req, res) => {
                     note: note || "",
                     deliveryAddress: deliveryAddress || "",
                     status: 'Pending',
-                    paymentStatus: 'Unpaid',
+                    paymentMethod: paymentMethod || null,
+                    paymentStatus: paymentStatus || 'Unpaid',
                     items: {
                         create: orderItemsData
                     }
