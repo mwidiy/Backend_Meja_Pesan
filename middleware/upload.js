@@ -1,34 +1,36 @@
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 
-// Konfigurasi penyimpanan file
+// Ensure directory exists
+const uploadDir = 'public/images';
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'public/images'); // Folder penyimpanan
+        cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
-        // Nama file unik: timestamp + nama asli
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + path.extname(file.originalname));
+        cb(null, 'IMG-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 
-// Filter file: hanya gambar
 const fileFilter = (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (extname && mimetype) {
-        return cb(null, true);
+    if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
     } else {
-        cb(new Error('Hanya file gambar yang diperbolehkan!'));
+        cb(new Error('Not an image! Please upload an image.'), false);
     }
 };
 
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // Limit 5MB
+    limits: {
+        fileSize: 1024 * 1024 * 5 // 5MB limit
+    },
     fileFilter: fileFilter
 });
 

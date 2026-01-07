@@ -17,6 +17,19 @@ model User {
   googleId  String?  @unique
   role      String   @default("cashier")
   createdAt DateTime @default(now())
+  store     Store?
+}
+
+model Store {
+  id              Int      @id @default(autoincrement())
+  name            String   @default("Nama Resto")
+  logo            String? 
+  qrisImage       String? 
+  
+  ownerId         Int      @unique 
+  owner           User     @relation(fields: [ownerId], references: [id])
+  
+  updatedAt       DateTime @updatedAt
 }
 
 // 2. MEJA & QR MANAGEMENT
