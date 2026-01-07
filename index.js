@@ -19,7 +19,11 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 
 // --- MIDDLEWARE ---
-app.use(cors()); // PENTING: Supaya Next.js dan Kotlin bisa akses API ini
+app.use(cors({
+  origin: ["http://localhost:3001", "http://192.168.1.4:3001", "*"], // Allow PWA
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
+}));
 app.use(express.json()); // Supaya bisa baca data JSON dari request body
 app.use('/uploads', express.static('public/images')); // Akses gambar publik
 
