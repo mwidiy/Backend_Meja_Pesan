@@ -187,16 +187,19 @@ const getAllOrders = async (req, res) => {
 
 const updateOrderStatus = async (req, res) => {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, paymentStatus } = req.body; // Accept paymentStatus
 
     try {
         // Logic update field status dan paymentStatus
-        let dataToUpdate = { status };
+        let dataToUpdate = {};
+        if (status) dataToUpdate.status = status;
+        if (paymentStatus) dataToUpdate.paymentStatus = paymentStatus;
 
-        if (status === 'Paid') {
+        // Auto-update paymentStatus logic (optional fallback)
+        if (status === 'Paid' && !paymentStatus) {
             dataToUpdate.paymentStatus = 'Paid';
-        } else if (status === 'Cancelled') {
-            dataToUpdate.paymentStatus = 'Cancelled'; // Opsional: sesuaikan jika ada logic refund
+        } else if (status === 'Cancelled' && !paymentStatus) {
+            dataToUpdate.paymentStatus = 'Cancelled';
         }
 
         const updatedOrder = await prisma.order.update({
