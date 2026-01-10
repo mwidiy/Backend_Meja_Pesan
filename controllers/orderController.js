@@ -236,8 +236,62 @@ const updateOrderStatus = async (req, res) => {
     }
 };
 
+const getOrderById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const order = await prisma.order.findUnique({
+            where: { id: parseInt(id) },
+            include: {
+                items: {
+                    include: { product: true }
+                },
+                table: {
+                    include: { location: true }
+                }
+            }
+        });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        res.status(200).json({ success: true, data: order });
+    } catch (error) {
+        console.error('Error fetching order:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
+const getOrderByTransactionCode = async (req, res) => {
+    try {
+        const { code } = req.params;
+        const order = await prisma.order.findUnique({
+            where: { transactionCode: code },
+            include: {
+                items: {
+                    include: { product: true }
+                },
+                table: {
+                    include: { location: true }
+                }
+            }
+        });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        res.status(200).json({ success: true, data: order });
+    } catch (error) {
+        console.error('Error fetching order by code:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
 module.exports = {
     createOrder,
     getAllOrders,
-    updateOrderStatus
+    updateOrderStatus,
+    getOrderById,
+    getOrderByTransactionCode
 };
