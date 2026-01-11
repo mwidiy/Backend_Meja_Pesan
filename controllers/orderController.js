@@ -90,11 +90,58 @@ const createOrder = async (req, res) => {
         // 5. Generate Transaction Code Unik
         const transactionCode = generateTransactionCode();
 
+        // --- SMART QUEUE LOGIC START ---
+        // 1. Fetch products to get prepTime
+        const productIds = items.map(item => item.productId);
+        const products = await prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, prepTime: true, name: true }
+        });
+
+        const prepMap = {};
+        products.forEach(p => prepMap[p.id] = p.prepTime || 5); // Default 5 mins
+
+        // 2. Determine Lane
+        let maxPrepTime = 0;
+        let isFastLane = true;
+        items.forEach(item => {
+            const pt = prepMap[item.productId];
+            if (pt > 5) isFastLane = false;
+            if (pt > maxPrepTime) maxPrepTime = pt;
+        });
+
+        // 3. Set Estimated Time String
+        let finalEstimatedTime = "15-20 Menit";
+        if (isFastLane) {
+            finalEstimatedTime = "5-10 Menit";
+        } else {
+            if (maxPrepTime >= 20) {
+                finalEstimatedTime = "25-30 Menit";
+            } else {
+                finalEstimatedTime = "15-20 Menit";
+            }
+        }
+        // --- SMART QUEUE LOGIC END ---
+
+        // 7. Daily Queue Number Logic (New - Smart Queue 2.0)
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const todayOrderCount = await prisma.order.count({
+            where: {
+                createdAt: {
+                    gte: todayStart
+                }
+            }
+        });
+        const nextQueueNumber = todayOrderCount + 1;
+
         // 6. Prisma Transaction (Atomic Create)
         const newOrder = await prisma.$transaction(async (tx) => {
             const order = await tx.order.create({
                 data: {
                     transactionCode,
+                    queueNumber: nextQueueNumber, // Save Daily Number
                     customerName,
                     // Map tableId jika valid (Relasi ke Table)
                     tableId: finalTableId ? parseInt(finalTableId) : null,
@@ -105,6 +152,7 @@ const createOrder = async (req, res) => {
                     status: 'Pending',
                     paymentMethod: paymentMethod || null,
                     paymentStatus: paymentStatus || 'Unpaid',
+                    estimatedTime: finalEstimatedTime, // Added Smart Estimation
                     items: {
                         create: orderItemsData
                     }
@@ -190,9 +238,38 @@ const updateOrderStatus = async (req, res) => {
     const { status, paymentStatus } = req.body; // Accept paymentStatus
 
     try {
+        // 1. Fetch Order first to get current data & items (for smart logic)
+        const currentOrder = await prisma.order.findUnique({
+            where: { id: parseInt(id) },
+            include: { items: { include: { product: true } } }
+        });
+
+        if (!currentOrder) return res.status(404).json({ message: 'Order not found' });
+
         // Logic update field status dan paymentStatus
         let dataToUpdate = {};
-        if (status) dataToUpdate.status = status;
+        if (status) {
+            dataToUpdate.status = status;
+
+            // SMART QUEUE LOGIC: Set Target Time when Order starts Processing
+            if (status === 'Processing' && !currentOrder.targetTime) {
+                // Determine duration based on prepTime of items
+                let durationMinutes = 5; // Default
+
+                // Cek Max Prep Time dari items
+                if (currentOrder.items && currentOrder.items.length > 0) {
+                    const maxPrep = Math.max(...currentOrder.items.map(i => i.product.prepTime || 5));
+                    // Jika minuman (2-3) -> 5 menit total
+                    // Jika makanan (15) -> 20 menit total (buffer)
+                    durationMinutes = maxPrep <= 5 ? 5 : (maxPrep + 5);
+                }
+
+                const targetTime = new Date();
+                targetTime.setMinutes(targetTime.getMinutes() + durationMinutes);
+                dataToUpdate.targetTime = targetTime;
+                console.log(`⏱️ Order ${currentOrder.transactionCode} started processing. Target: ${targetTime.toLocaleTimeString()}`);
+            }
+        }
         if (paymentStatus) dataToUpdate.paymentStatus = paymentStatus;
 
         // Auto-update paymentStatus logic (optional fallback)
@@ -284,7 +361,62 @@ const getOrderByTransactionCode = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
 
-        res.status(200).json({ success: true, data: order });
+        // SMART QUEUE 3.0: Predictive Time & Dynamic Position
+        // 1. Get ALL orders ahead (Pending/Processing) to sum their prep times
+        const ordersQueue = await prisma.order.findMany({
+            where: {
+                createdAt: {
+                    lt: order.createdAt,
+                    gte: new Date(new Date().setHours(0, 0, 0, 0))
+                },
+                status: 'Pending' // User Request 5.0: Only Pending counts as "Queue"
+            },
+            include: { items: { include: { product: true } } }
+        });
+
+        const queuePosition = ordersQueue.length + 1; // My position (1-based)
+
+        // 2. Calculate Cumulative Prep Time
+        // Logic: Sum of max prep time per order in queue + my order
+        let totalMinutesAhead = 0;
+
+        // A. Duration of orders ahead
+        for (const qOrder of ordersQueue) {
+            let orderPrep = 5; // Default buffer
+            if (qOrder.items && qOrder.items.length > 0) {
+                // Take max prep time of items in that order (parallel prep)
+                const maxP = Math.max(...qOrder.items.map(i => i.product.prepTime || 5));
+                orderPrep = maxP;
+            }
+            totalMinutesAhead += orderPrep;
+        }
+
+        // B. Duration of MY order
+        let myPrep = 5;
+        if (order.items && order.items.length > 0) {
+            myPrep = Math.max(...order.items.map(i => i.product.prepTime || 5));
+        }
+
+        // C. Total Service Time Calculation
+        // If system is idle, starts from Now. If busy, adds to cumulative.
+        // For simplicity: Now + Total Minutes Wait
+        const now = new Date();
+        const predictedTime = new Date(now.getTime() + (totalMinutesAhead + myPrep) * 60000);
+
+        // Format to HH:mm
+        const hours = String(predictedTime.getHours()).padStart(2, '0');
+        const minutes = String(predictedTime.getMinutes()).padStart(2, '0');
+        const clockTime = `${hours}:${minutes}`;
+
+        res.status(200).json({
+            success: true,
+            data: {
+                ...order,
+                queuePosition: queuePosition, // Explicit Position (1, 2, 3)
+                ordersAhead: ordersQueue.length, // 0 means I am next/processing
+                predictedServiceTime: clockTime // "12:30"
+            }
+        });
     } catch (error) {
         console.error('Error fetching order by code:', error);
         res.status(500).json({ success: false, message: 'Server Error' });

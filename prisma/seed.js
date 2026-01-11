@@ -54,6 +54,34 @@ async function main() {
     console.log('Warning: Indoor location not found, skipping Counter Pickup table.');
   }
 
+  // Update Prep Times (Smart Queue Setup)
+  console.log('Updating Prep Times...');
+  // Minuman & Cemilan -> 2 mins (Fast Lane matches)
+  const lowCategories = await prisma.category.findMany({
+    where: { name: { in: ['Minuman', 'Cemilan'] } }
+  });
+  if (lowCategories.length > 0) {
+    const ids = lowCategories.map(c => c.id);
+    await prisma.product.updateMany({
+      where: { categoryId: { in: ids } },
+      data: { prepTime: 3 } // <= 5 mins
+    });
+    console.log('Set PrepTime 3 mins for Minuman/Cemilan');
+  }
+
+  // Makanan -> 15 mins (Regular Lane)
+  const highCategories = await prisma.category.findMany({
+    where: { name: 'Makanan' }
+  });
+  if (highCategories.length > 0) {
+    const ids = highCategories.map(c => c.id);
+    await prisma.product.updateMany({
+      where: { categoryId: { in: ids } },
+      data: { prepTime: 15 } // > 5 mins
+    });
+    console.log('Set PrepTime 15 mins for Makanan');
+  }
+
   console.log('Seeding finished.');
 }
 
