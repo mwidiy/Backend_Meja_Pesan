@@ -549,18 +549,43 @@ const approveCancel = async (req, res) => {
 const rejectCancel = async (req, res) => {
     try {
         const { id } = req.params;
+        const { reason } = req.body;
+
+        console.log(`[DEBUG] Received Reject/Cancel for Order ${id}`);
+        console.log(`[DEBUG] Reason provided: ${reason}`);
+
+        const order = await prisma.order.findUnique({ where: { id: parseInt(id) } });
+
+        let updatedData = {};
+        let message = "";
+
+        if (reason) {
+            // FORCE CANCEL SCENARIO
+            console.log(`[DEBUG] Executing Force Cancel`);
+            updatedData = {
+                status: 'Cancelled',
+                cancellationStatus: 'RejectedByAdmin',
+                cancellationReason: `Dibatalkan Kasir: ${reason}`,
+                refundStatus: order.paymentStatus === 'Paid' ? 'Pending' : null
+            };
+            message = "Pesanan Dibatalkan Paksa oleh Kasir";
+        } else {
+            // STANDARD REJECT SCENARIO
+            console.log(`[DEBUG] Executing Standard Reject`);
+            updatedData = {
+                cancellationStatus: 'Rejected'
+            };
+            message = "Permintaan Pembatalan Ditolak";
+        }
 
         const updatedOrder = await prisma.order.update({
             where: { id: parseInt(id) },
-            data: {
-                cancellationStatus: 'Rejected'
-                // Status remains 'Processing'
-            },
+            data: updatedData,
             include: { items: { include: { product: true } } }
         });
 
         if (req.io) req.io.emit('order_status_updated', updatedOrder);
-        res.json({ success: true, message: "Pembatalan Ditolak", data: updatedOrder });
+        res.json({ success: true, message, data: updatedOrder });
     } catch (e) {
         console.error(e);
         res.status(500).json({ message: "Error rejecting cancellation" });
