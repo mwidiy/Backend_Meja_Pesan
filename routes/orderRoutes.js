@@ -6,14 +6,16 @@ const orderController = require('../controllers/orderController');
 // POST /api/orders/batch (Ambil Banyak Pesanan)
 router.post('/batch', orderController.getOrdersByBatch);
 
-// POST /api/orders (Buat Pesanan)
+const { verifyToken } = require('../middleware/authMiddleware');
+
+// POST /api/orders (Buat Pesanan - Public customer)
 router.post('/', orderController.createOrder);
 
-// GET /api/orders (Ambil Semua Pesanan)
-router.get('/', orderController.getAllOrders);
+// GET /api/orders (Ambil Semua - Protected Admin)
+router.get('/', verifyToken, orderController.getAllOrders);
 
-// GET /api/orders/export-pdf (Download PDF)
-router.get('/export-pdf', orderController.exportOrdersPdf);
+// GET /api/orders/export-pdf (Protected)
+router.get('/export-pdf', verifyToken, orderController.exportOrdersPdf);
 
 // PUT /api/orders/:id/status (Update Status & Payment)
 router.put('/:id/status', orderController.updateOrderStatus);

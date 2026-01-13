@@ -4,19 +4,21 @@ const productController = require('../controllers/productController');
 
 const upload = require('../middleware/upload');
 
+const { verifyToken } = require('../middleware/authMiddleware');
+
 // GET /api/products
-router.get('/', productController.getAllProducts);
+router.get('/', verifyToken, productController.getAllProducts);
 
 // GET /api/products/:id
 router.get('/:id', productController.getProductById);
 
 // POST /api/products
-router.post('/', upload.single('image'), productController.createProduct);
+router.post('/', verifyToken, upload.single('image'), productController.createProduct);
 
 // PUT /api/products/:id
-router.put('/:id', upload.single('image'), productController.updateProduct);
+router.put('/:id', verifyToken, upload.single('image'), productController.updateProduct);
 
 // DELETE /api/products/:id
-router.delete('/:id', productController.deleteProduct);
+router.delete('/:id', verifyToken, productController.deleteProduct);
 
 module.exports = router;

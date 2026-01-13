@@ -160,11 +160,6 @@ const createOrder = async (req, res) => {
                     }
                 },
                 include: {
-                    items: {
-                        include: {
-                            product: true
-                        }
-                    },
                     table: {
                         include: {
                             location: true
@@ -172,6 +167,32 @@ const createOrder = async (req, res) => {
                     }
                 }
             });
+
+            // If we have storeId from Auth Middleware (req.storeId)
+            // But createOrder is currently public (scanned by customer).
+            // HOW TO HANDLE STORE ID FOR CUSTOMER ORDER?
+            // The Table/QR must imply the Store.
+            // We need to fetch StoreId from the Table->Location->Store Relation.
+
+            // Logic Update: fetch Table first to get StoreId
+            if (tableId) {
+                const tableInfo = await prisma.table.findUnique({
+                    where: { id: tableId },
+                    include: { location: { include: { store: true } } }
+                });
+                if (tableInfo && tableInfo.location && tableInfo.location.storeId) {
+                    await prisma.order.update({
+                        where: { id: order.id },
+                        data: { storeId: tableInfo.location.storeId }
+                    });
+                    // Also update newOrder object for response if needed
+                    newOrder.storeId = tableInfo.location.storeId;
+                }
+            } else {
+                // Taking away/Counter? We need a fallback "Default Store" or require StoreId in request body.
+                // For now, let's assume req.body includes 'storeId' if scanned from a Store QR (future feature).
+                // OR, update createOrder to accept storeId query param?
+            }
 
             return order;
         });
@@ -195,8 +216,13 @@ const createOrder = async (req, res) => {
 
 const getAllOrders = async (req, res) => {
     try {
-        const { status } = req.query;
+        const { status, type, search } = req.query;
         let whereClause = {};
+
+        // Multi-tenancy Filter
+        if (req.storeId) {
+            whereClause.storeId = req.storeId;
+        }
 
         if (status) {
             // Support comma-separated statuses e.g. "Completed,Cancelled"

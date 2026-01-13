@@ -6,6 +6,7 @@ const prisma = new PrismaClient();
 const getAllCategories = async (req, res) => {
     try {
         const categories = await prisma.category.findMany({
+            where: { storeId: req.storeId }, // Multi-tenancy scope
             orderBy: {
                 name: 'asc'
             }
@@ -41,7 +42,8 @@ const createCategory = async (req, res) => {
     try {
         const newCategory = await prisma.category.create({
             data: {
-                name: name
+                name: name,
+                store: { connect: { id: req.storeId } }
             }
         });
 
@@ -74,6 +76,12 @@ const updateCategory = async (req, res) => {
     const { name } = req.body;
 
     try {
+        // Check ownership first
+        const category = await prisma.category.findFirst({
+            where: { id: Number(id), storeId: req.storeId }
+        });
+        if (!category) return res.status(404).json({ success: false, message: "Kategori tidak ditemukan (Store mismatch)" });
+
         const updatedCategory = await prisma.category.update({
             where: { id: Number(id) },
             data: { name: name }
@@ -104,9 +112,16 @@ const deleteCategory = async (req, res) => {
     const categoryId = Number(id);
 
     try {
+        const categoryId = Number(id);
+
+        const category = await prisma.category.findFirst({
+            where: { id: categoryId, storeId: req.storeId }
+        });
+        if (!category) return res.status(404).json({ success: false, message: "Kategori tidak ditemukan (Store mismatch)" });
+
         // Cek dulu apakah kategori ini sedang dipakai oleh produk
         const productCount = await prisma.product.count({
-            where: { categoryId: categoryId }
+            where: { categoryId: categoryId, storeId: req.storeId }
         });
 
         if (productCount > 0) {

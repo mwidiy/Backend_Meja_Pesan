@@ -40,8 +40,15 @@ const removeImage = (filePath) => {
 const getAllProducts = async (req, res) => {
     const { status } = req.query;
     try {
+        const whereClause = {
+            storeId: req.storeId // Enforce Store Scope
+        };
+        if (status === 'active') {
+            whereClause.isActive = true;
+        }
+
         const products = await prisma.product.findMany({
-            where: status === 'active' ? { isActive: true } : {},
+            where: whereClause,
             // Include category relation
             include: {
                 category: true
@@ -117,14 +124,14 @@ const createProduct = async (req, res) => {
         const newProduct = await prisma.product.create({
             data: {
                 name,
-                // Gunakan categoryId (Int)
                 categoryId: parseInt(categoryId),
                 price: Number(price),
                 description,
                 image: imageUrl,
-                isActive: true
+                isActive: true,
+                store: { connect: { id: req.storeId } } // Connect to Store
             },
-            include: { // Include to return full object immediately
+            include: {
                 category: true
             }
         });
@@ -165,9 +172,12 @@ const updateProduct = async (req, res) => {
     }
 
     try {
-        const existingProduct = await prisma.product.findUnique({ where: { id: Number(id) } });
+        const existingProduct = await prisma.product.findFirst({
+            where: { id: Number(id), storeId: req.storeId }
+        });
+
         if (!existingProduct) {
-            return res.status(404).json({ success: false, message: "Produk tidak ditemukan" });
+            return res.status(404).json({ success: false, message: "Produk tidak ditemukan atau akses ditolak" });
         }
 
         if (req.file && existingProduct.image) {
@@ -213,7 +223,10 @@ const updateProduct = async (req, res) => {
 const deleteProduct = async (req, res) => {
     const { id } = req.params;
     try {
-        const product = await prisma.product.findUnique({ where: { id: Number(id) } });
+        const product = await prisma.product.findFirst({
+            where: { id: Number(id), storeId: req.storeId }
+        });
+
         if (!product) return res.status(404).json({ success: false, message: "Produk tidak ditemukan" });
 
         // Hapus file gambar jika ada

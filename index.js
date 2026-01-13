@@ -68,6 +68,7 @@ app.use('/api/tables', require('./routes/tableRoutes'));
 app.use('/api/banners', bannerRoutes);
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/store', require('./routes/storeRoutes'));
+app.use('/api/auth', require('./routes/authRoutes')); // NEW: Google Login Route
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen
