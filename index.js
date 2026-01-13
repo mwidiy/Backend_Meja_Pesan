@@ -20,7 +20,20 @@ const PORT = process.env.PORT || 3000;
 
 // --- MIDDLEWARE ---
 app.use(cors({
-  origin: ["http://localhost:3001", "http://192.168.1.4:3001", "*"], // Allow PWA
+  // CORS Otomatis: Izinkan Localhost & Semua IP 192.168.x.x (Local Network)
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, or Postman)
+    if (!origin) return callback(null, true);
+
+    // Allow localhost and any 192.168.*.*
+    if (origin.match(/^http:\/\/localhost/) || origin.match(/^http:\/\/192\.168\./)) {
+      return callback(null, true);
+    }
+
+    // Default: Block foreign origins (optional: allow all for dev)
+    // callback(new Error('Not allowed by CORS'));
+    callback(null, true); // Fallback: Allow all (Dev Mode)
+  },
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));

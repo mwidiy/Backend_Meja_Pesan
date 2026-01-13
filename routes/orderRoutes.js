@@ -3,6 +3,9 @@ const router = express.Router();
 const orderController = require('../controllers/orderController');
 
 // POST /api/orders
+// POST /api/orders/batch (Ambil Banyak Pesanan)
+router.post('/batch', orderController.getOrdersByBatch);
+
 // POST /api/orders (Buat Pesanan)
 router.post('/', orderController.createOrder);
 

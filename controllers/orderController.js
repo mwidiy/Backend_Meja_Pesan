@@ -403,6 +403,7 @@ const getOrderByTransactionCode = async (req, res) => {
         const now = new Date();
         const predictedTime = new Date(now.getTime() + (totalMinutesAhead + myPrep) * 60000);
 
+
         // Format to HH:mm
         const hours = String(predictedTime.getHours()).padStart(2, '0');
         const minutes = String(predictedTime.getMinutes()).padStart(2, '0');
@@ -423,10 +424,52 @@ const getOrderByTransactionCode = async (req, res) => {
     }
 };
 
+const getOrdersByBatch = async (req, res) => {
+    try {
+        const { codes } = req.body; // Expect array of transaction codes
+
+        if (!codes || !Array.isArray(codes) || codes.length === 0) {
+            return res.status(200).json({ success: true, data: [] });
+        }
+
+        const orders = await prisma.order.findMany({
+            where: {
+                transactionCode: { in: codes }
+            },
+            include: {
+                items: {
+                    include: { product: true }
+                },
+                table: {
+                    include: { location: true }
+                }
+            },
+            orderBy: {
+                createdAt: 'desc'
+            }
+        });
+
+        // Add simplified Queue Logic for Status Page (just to show accurate status text)
+        // We iterate through them to add formatted prediction if needed, 
+        // but for the Status LIST page, we might just need Status, Items, Total.
+        // Let's keep it simple for now and just return the data. Frontend can format.
+
+        res.status(200).json({
+            success: true,
+            data: orders
+        });
+
+    } catch (error) {
+        console.error('Error fetching batch orders:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
 module.exports = {
     createOrder,
     getAllOrders,
     updateOrderStatus,
     getOrderById,
-    getOrderByTransactionCode
+    getOrderByTransactionCode,
+    getOrdersByBatch
 };
