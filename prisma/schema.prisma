@@ -110,6 +110,11 @@ model Order {
   deliveryAddress String?
   
   items         OrderItem[]
+
+  // Cancellation & Refund
+  cancellationReason String?
+  cancellationStatus String?   // "Requested", "Approved", "Rejected"
+  refundStatus       String?   // "Pending", "Refunded"
 }
 
 // 6. DETAIL TRANSAKSI (ITEM)

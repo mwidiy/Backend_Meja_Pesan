@@ -465,11 +465,157 @@ const getOrdersByBatch = async (req, res) => {
     }
 };
 
+// --- CANCELLATION & REFUND LOGIC ---
+const requestCancel = async (req, res) => {
+    try {
+        const { transactionCode, reason } = req.body;
+
+        const order = await prisma.order.findUnique({
+            where: { transactionCode }
+        });
+
+        if (!order) return res.status(404).json({ message: "Order not found" });
+
+        if (order.status === 'Completed' || order.status === 'Cancelled') {
+            return res.status(400).json({ message: "Pesanan ini tidak bisa dibatalkan lagi." });
+        }
+
+        let updatedData = {};
+        let message = "";
+
+        // Scenario 1: Pending -> Auto Cancel
+        if (order.status === 'Pending') {
+            updatedData = {
+                status: 'Cancelled',
+                cancellationReason: reason,
+                cancellationStatus: 'AutoCancelled',
+                // If Paid, set Refund Status to Pending
+                refundStatus: order.paymentStatus === 'Paid' ? 'Pending' : null
+            };
+            message = "Pesanan berhasil dibatalkan otomatis.";
+        }
+        // Scenario 2: Processing -> Request
+        else if (order.status === 'Processing') {
+            updatedData = {
+                cancellationStatus: 'Requested',
+                cancellationReason: reason
+            };
+            message = "Permintaan pembatalan dikirim ke kasir.";
+        } else {
+            return res.status(400).json({ message: "Status pesanan tidak valid untuk pembatalan." });
+        }
+
+        const updatedOrder = await prisma.order.update({
+            where: { transactionCode },
+            data: updatedData,
+            include: { items: { include: { product: true } } }
+        });
+
+        if (req.io) req.io.emit('order_status_updated', updatedOrder);
+
+        res.json({ success: true, message, data: updatedOrder });
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: "Gagal memproses pembatalan" });
+    }
+};
+
+const approveCancel = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const order = await prisma.order.findUnique({ where: { id: parseInt(id) } });
+
+        if (!order) return res.status(404).json({ message: "Order not found" });
+
+        const updatedOrder = await prisma.order.update({
+            where: { id: parseInt(id) },
+            data: {
+                status: 'Cancelled',
+                cancellationStatus: 'Approved',
+                refundStatus: order.paymentStatus === 'Paid' ? 'Pending' : null
+            },
+            include: { items: { include: { product: true } } }
+        });
+
+        if (req.io) req.io.emit('order_status_updated', updatedOrder);
+        res.json({ success: true, message: "Pembatalan Disetujui", data: updatedOrder });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: "Error approving cancellation" });
+    }
+};
+
+const rejectCancel = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const updatedOrder = await prisma.order.update({
+            where: { id: parseInt(id) },
+            data: {
+                cancellationStatus: 'Rejected'
+                // Status remains 'Processing'
+            },
+            include: { items: { include: { product: true } } }
+        });
+
+        if (req.io) req.io.emit('order_status_updated', updatedOrder);
+        res.json({ success: true, message: "Pembatalan Ditolak", data: updatedOrder });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: "Error rejecting cancellation" });
+    }
+};
+
+const verifyRefund = async (req, res) => {
+    try {
+        const { transactionCode } = req.body;
+        const order = await prisma.order.findUnique({ where: { transactionCode } });
+
+        if (!order) return res.status(404).json({ message: "Order not found" });
+
+        // Check validity for refund
+        if (order.status !== 'Cancelled' && order.cancellationStatus !== 'AutoCancelled') {
+            return res.status(400).json({ message: "Pesanan ini tidak dalam status Batal" });
+        }
+
+        if (order.paymentStatus !== 'Paid') {
+            return res.status(400).json({ message: "Pesanan ini belum dibayar, tidak perlu refund." });
+        }
+
+        if (order.refundStatus === 'Refunded') {
+            return res.status(400).json({ message: "Pesanan ini SUDAH di-refund sebelumnya." });
+        }
+
+        // Execute Refund
+        const updatedOrder = await prisma.order.update({
+            where: { transactionCode },
+            data: { refundStatus: 'Refunded' }
+        });
+
+        if (req.io) req.io.emit('order_status_updated', updatedOrder);
+
+        res.json({
+            success: true,
+            message: "Refund Valid & Berhasil Diverifikasi",
+            amount: order.totalAmount
+        });
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: "Refund Error" });
+    }
+};
+
 module.exports = {
     createOrder,
     getAllOrders,
     updateOrderStatus,
     getOrderById,
     getOrderByTransactionCode,
-    getOrdersByBatch
+    getOrdersByBatch,
+    requestCancel,
+    approveCancel,
+    rejectCancel,
+    verifyRefund
 };
