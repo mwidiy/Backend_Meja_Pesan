@@ -12,6 +12,9 @@ router.post('/', orderController.createOrder);
 // GET /api/orders (Ambil Semua Pesanan)
 router.get('/', orderController.getAllOrders);
 
+// GET /api/orders/export-pdf (Download PDF)
+router.get('/export-pdf', orderController.exportOrdersPdf);
+
 // PUT /api/orders/:id/status (Update Status & Payment)
 router.put('/:id/status', orderController.updateOrderStatus);
 
