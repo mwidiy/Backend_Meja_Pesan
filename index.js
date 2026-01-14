@@ -50,6 +50,15 @@ app.use((req, res, next) => {
 io.on('connection', (socket) => {
   console.log(`⚡ Client connected: ${socket.id}`);
 
+  // Client (PWA/Android) join specific Store Room
+  socket.on('join_store', (storeId) => {
+    if (storeId) {
+      const roomName = `store_${storeId}`;
+      socket.join(roomName);
+      console.log(`🔌 Socket ${socket.id} joined room: ${roomName}`);
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`❌ Client disconnected: ${socket.id}`);
   });

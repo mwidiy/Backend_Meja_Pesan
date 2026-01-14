@@ -5,7 +5,7 @@ const categoryController = require('../controllers/categoryController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
 // Define routes
-router.get('/', verifyToken, categoryController.getAllCategories);
+router.get('/', categoryController.getAllCategories);
 router.post('/', verifyToken, categoryController.createCategory);
 router.put('/:id', verifyToken, categoryController.updateCategory);
 router.delete('/:id', verifyToken, categoryController.deleteCategory);

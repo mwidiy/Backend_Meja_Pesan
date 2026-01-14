@@ -24,6 +24,7 @@ const createOrder = async (req, res) => {
         const {
             customerName,
             tableId,
+            storeId, // <--- New Field
             orderType,
             items,
             note,
@@ -37,6 +38,13 @@ const createOrder = async (req, res) => {
             return res.status(400).json({ error: 'Customer name dan items harus diisi.' });
         }
 
+        // Multi-Tenancy Check: Store ID is mandatory now (except maybe for legacy calls, handled carefully)
+        if (!storeId) {
+            // Note: If you have legacy clients, you might fallback or warn.
+            // But for PWA connected to Multi-Tenant Backend, this is key.
+            console.warn("⚠️ Warning: Order created without storeId!");
+        }
+
         // 2. Parsed Data & Logic
         let parsedTableId = null;
         let finalOrderType = orderType;
@@ -47,23 +55,22 @@ const createOrder = async (req, res) => {
         // AMBIL ID DARI REQUEST
         let finalTableId = req.body.tableId;
         // HANYA JIKA Table ID kosong/null, BARU kita cari meja default
-        if (!finalTableId) {
-            if (orderType === 'takeaway') {
-                // Cari meja default takeaway (jika ada logic ini)
-                // Default ke Counter Pickup sesuai logic lama
-                const pickupTable = await prisma.table.findUnique({
-                    where: { qrCode: 'COUNTER-PICKUP' }
+        if (!finalTableId && storeId) {
+            if (orderType === 'takeaway' || orderType === 'delivery') {
+                // Cari meja default takeaway SCIPED TO STORE
+                const pickupTable = await prisma.table.findFirst({
+                    where: {
+                        qrCode: 'COUNTER-PICKUP',
+                        location: { storeId: parseInt(storeId) } // Scoped Lookup
+                    }
                 });
+
                 if (pickupTable) {
                     finalTableId = pickupTable.id.toString();
-                }
-            } else if (orderType === 'delivery') {
-                // Default ke Counter Pickup (atau logic lain jika ada)
-                const pickupTable = await prisma.table.findUnique({
-                    where: { qrCode: 'COUNTER-PICKUP' }
-                });
-                if (pickupTable) {
-                    finalTableId = pickupTable.id.toString();
+                } else {
+                    // Jika belum ada meja default di toko ini, mungkin butuh fallback atau biarkan null
+                    // Idealnya setiap toko baru dibuatkan meja 'COUNTER-PICKUP'
+                    console.log(`[Info] No COUNTER-PICKUP table found for Store ${storeId}`);
                 }
             }
         }
@@ -126,39 +133,52 @@ const createOrder = async (req, res) => {
         // --- SMART QUEUE LOGIC END ---
 
         // 7. Daily Queue Number Logic (New - Smart Queue 2.0)
+        // Scope Queue Number to Store? Usually yes.
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
 
+        const whereQueue = {
+            createdAt: { gte: todayStart }
+        };
+        if (storeId) whereQueue.storeId = parseInt(storeId);
+
         const todayOrderCount = await prisma.order.count({
-            where: {
-                createdAt: {
-                    gte: todayStart
-                }
-            }
+            where: whereQueue
         });
         const nextQueueNumber = todayOrderCount + 1;
 
         // 6. Prisma Transaction (Atomic Create)
         const newOrder = await prisma.$transaction(async (tx) => {
+            const orderData = {
+                transactionCode,
+                queueNumber: nextQueueNumber, // Save Daily Number
+                customerName,
+                // Don't use scalar tableId, use relation below
+                orderType: finalOrderType,
+                totalAmount: calculatedTotal,
+                note: note || "",
+                deliveryAddress: deliveryAddress || "",
+                status: 'Pending',
+                paymentMethod: paymentMethod || null,
+                paymentStatus: paymentStatus || 'Unpaid',
+                estimatedTime: finalEstimatedTime, // Added Smart Estimation
+                items: {
+                    create: orderItemsData
+                }
+            };
+
+            // Connect Table if Valid
+            if (finalTableId) {
+                orderData.table = { connect: { id: parseInt(finalTableId) } };
+            }
+
+            // Connect Store if Valid
+            if (storeId) {
+                orderData.store = { connect: { id: parseInt(storeId) } };
+            }
+
             const order = await tx.order.create({
-                data: {
-                    transactionCode,
-                    queueNumber: nextQueueNumber, // Save Daily Number
-                    customerName,
-                    // Map tableId jika valid (Relasi ke Table)
-                    tableId: finalTableId ? parseInt(finalTableId) : null,
-                    orderType: finalOrderType,
-                    totalAmount: calculatedTotal,
-                    note: note || "",
-                    deliveryAddress: deliveryAddress || "",
-                    status: 'Pending',
-                    paymentMethod: paymentMethod || null,
-                    paymentStatus: paymentStatus || 'Unpaid',
-                    estimatedTime: finalEstimatedTime, // Added Smart Estimation
-                    items: {
-                        create: orderItemsData
-                    }
-                },
+                data: orderData,
                 include: {
                     table: {
                         include: {
@@ -168,39 +188,19 @@ const createOrder = async (req, res) => {
                 }
             });
 
-            // If we have storeId from Auth Middleware (req.storeId)
-            // But createOrder is currently public (scanned by customer).
-            // HOW TO HANDLE STORE ID FOR CUSTOMER ORDER?
-            // The Table/QR must imply the Store.
-            // We need to fetch StoreId from the Table->Location->Store Relation.
-
-            // Logic Update: fetch Table first to get StoreId
-            if (tableId) {
-                const tableInfo = await prisma.table.findUnique({
-                    where: { id: tableId },
-                    include: { location: { include: { store: true } } }
-                });
-                if (tableInfo && tableInfo.location && tableInfo.location.storeId) {
-                    await prisma.order.update({
-                        where: { id: order.id },
-                        data: { storeId: tableInfo.location.storeId }
-                    });
-                    // Also update newOrder object for response if needed
-                    newOrder.storeId = tableInfo.location.storeId;
-                }
-            } else {
-                // Taking away/Counter? We need a fallback "Default Store" or require StoreId in request body.
-                // For now, let's assume req.body includes 'storeId' if scanned from a Store QR (future feature).
-                // OR, update createOrder to accept storeId query param?
-            }
-
             return order;
         });
 
         // 7. Real-time Trigger
         if (req.io) {
+            // Emit to Global (Legacy Support)
             req.io.emit('new_order', newOrder);
-            console.log(`📡 Emitted 'new_order': ${newOrder.transactionCode}`);
+
+            // Emit to Store Room (Multi-Tenancy Support)
+            if (storeId) {
+                req.io.to(`store_${storeId}`).emit('new_order', newOrder);
+            }
+            console.log(`📡 Emitted 'new_order': ${newOrder.transactionCode} (Store: ${storeId})`);
         }
 
         res.status(201).json({
@@ -331,7 +331,10 @@ const updateOrderStatus = async (req, res) => {
         // Emit socket event
         if (req.io) {
             req.io.emit('order_status_updated', updatedOrder);
-            console.log(`📡 Emitted 'order_status_updated': ${updatedOrder.transactionCode} -> ${status}`);
+            if (updatedOrder.storeId) {
+                req.io.to(`store_${updatedOrder.storeId}`).emit('order_status_updated', updatedOrder);
+            }
+            console.log(`📡 Emitted 'order_status_updated': ${updatedOrder.transactionCode} -> ${status} (Store: ${updatedOrder.storeId})`);
         }
 
         res.status(200).json({
@@ -397,14 +400,21 @@ const getOrderByTransactionCode = async (req, res) => {
 
         // SMART QUEUE 3.0: Predictive Time & Dynamic Position
         // 1. Get ALL orders ahead (Pending/Processing) to sum their prep times
-        const ordersQueue = await prisma.order.findMany({
-            where: {
-                createdAt: {
-                    lt: order.createdAt,
-                    gte: new Date(new Date().setHours(0, 0, 0, 0))
-                },
-                status: 'Pending' // User Request 5.0: Only Pending counts as "Queue"
+        const queueWhere = {
+            createdAt: {
+                lt: order.createdAt,
+                gte: new Date(new Date().setHours(0, 0, 0, 0))
             },
+            status: 'Pending' // User Request 5.0: Only Pending counts as "Queue"
+        };
+
+        // Fix: Scope by StoreID
+        if (order.storeId) {
+            queueWhere.storeId = order.storeId;
+        }
+
+        const ordersQueue = await prisma.order.findMany({
+            where: queueWhere,
             include: { items: { include: { product: true } } }
         });
 

@@ -18,20 +18,25 @@ const generateRandomString = (length) => {
     return result;
 };
 
-// Get all tables
+// Get all tables (Scoped to Store via Location)
 exports.getAllTables = async (req, res) => {
     try {
+        if (!req.storeId) return res.status(400).json({ error: "Access Denied: No Store" });
+
         const tables = await prisma.table.findMany({
+            where: {
+                location: { storeId: req.storeId }
+            },
             include: { location: true },
             orderBy: { name: 'asc' },
         });
         res.json(tables);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: `Failed to fetch tables: ${error.message}` });
     }
 };
 
-// Get table by QR Code (Scan)
+// Get table by QR Code (Public Scan)
 exports.getTableByQrCode = async (req, res) => {
     try {
         const { code } = req.params;
@@ -60,6 +65,13 @@ exports.createTable = async (req, res) => {
         if (!name || !locationId) {
             return res.status(400).json({ error: "Name and Location ID are required" });
         }
+        if (!req.storeId) return res.status(400).json({ error: "Access Denied: No Store" });
+
+        // SAFETY: Verify location belongs to this store
+        const location = await prisma.location.findFirst({
+            where: { id: parseInt(locationId), storeId: req.storeId }
+        });
+        if (!location) return res.status(404).json({ error: "Location Invalid or Access Denied" });
 
         // Generate QR Logic: TBL-[SLUG_NAMA]-[RANDOM_STRING]
         const slug = createSlug(name);
@@ -76,7 +88,7 @@ exports.createTable = async (req, res) => {
         });
         res.status(201).json(table);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: `Failed to create table: ${error.message}` });
     }
 };
 
@@ -86,9 +98,25 @@ exports.updateTable = async (req, res) => {
         const { id } = req.params;
         const { name, locationId, isActive } = req.body;
 
+        // Verify Ownership
+        const exists = await prisma.table.findFirst({
+            where: {
+                id: parseInt(id),
+                location: { storeId: req.storeId }
+            }
+        });
+        if (!exists) return res.status(404).json({ error: "Table not found or access denied" });
+
         const updateData = {};
         if (name !== undefined) updateData.name = name;
-        if (locationId !== undefined) updateData.locationId = parseInt(locationId);
+        if (locationId !== undefined) {
+            // If changing location, verify new location ownership
+            const validLoc = await prisma.location.findFirst({
+                where: { id: parseInt(locationId), storeId: req.storeId }
+            });
+            if (!validLoc) return res.status(400).json({ error: "Target Location Invalid" });
+            updateData.locationId = parseInt(locationId);
+        }
         if (isActive !== undefined) updateData.isActive = isActive;
 
         // Note: qrCode is NOT updated to preserve printed stickers
@@ -100,7 +128,7 @@ exports.updateTable = async (req, res) => {
         });
         res.json(table);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: `Failed to update table: ${error.message}` });
     }
 };
 
@@ -109,6 +137,16 @@ exports.updateTableStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { isActive } = req.body;
+
+        // Ownership check implicit in update but better explicit if rigorous, 
+        // but prisma update where id matches is simple. Better check location ownership:
+        const exists = await prisma.table.findFirst({
+            where: {
+                id: parseInt(id),
+                location: { storeId: req.storeId }
+            }
+        });
+        if (!exists) return res.status(404).json({ error: "Table not found or access denied" });
 
         const table = await prisma.table.update({
             where: { id: parseInt(id) },
@@ -125,6 +163,16 @@ exports.updateTableStatus = async (req, res) => {
 exports.deleteTable = async (req, res) => {
     try {
         const { id } = req.params;
+
+        // Ownership check
+        const exists = await prisma.table.findFirst({
+            where: {
+                id: parseInt(id),
+                location: { storeId: req.storeId }
+            }
+        });
+        if (!exists) return res.status(404).json({ error: "Table not found or access denied" });
+
         await prisma.table.delete({
             where: { id: parseInt(id) },
         });

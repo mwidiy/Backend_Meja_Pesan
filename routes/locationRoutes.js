@@ -2,10 +2,12 @@ const express = require('express');
 const router = express.Router();
 const locationController = require('../controllers/locationController');
 
+const { verifyToken } = require('../middleware/authMiddleware');
+
 // Define routes
-router.get('/', locationController.getAllLocations);
-router.post('/', locationController.createLocation);
-router.put('/:id', locationController.updateLocation);
-router.delete('/:id', locationController.deleteLocation);
+router.get('/', verifyToken, locationController.getAllLocations);
+router.post('/', verifyToken, locationController.createLocation);
+router.put('/:id', verifyToken, locationController.updateLocation);
+router.delete('/:id', verifyToken, locationController.deleteLocation);
 
 module.exports = router;

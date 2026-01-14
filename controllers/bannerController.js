@@ -36,13 +36,21 @@ const removeImage = (filePath) => {
     }
 };
 
+const { identifyStore } = require('../middleware/authMiddleware');
+
 // GET /api/banners
 // Ambil semua banner
 const getAllBanners = async (req, res) => {
     const { status } = req.query;
     try {
+        const storeId = identifyStore(req);
+        if (!storeId) return res.status(400).json({ error: "Store Context Required (storeId)" });
+
+        const whereClause = { storeId: storeId };
+        if (status === 'active') whereClause.isActive = true;
+
         const banners = await prisma.banner.findMany({
-            where: status === 'active' ? { isActive: true } : {},
+            where: whereClause,
             orderBy: { createdAt: 'asc' } // Urutkan dari yang terlama (Ascending)
         });
 

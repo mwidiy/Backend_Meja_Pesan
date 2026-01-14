@@ -15,63 +15,44 @@ const deleteFile = (filename) => {
     }
 };
 
+const { identifyStore } = require('../middleware/authMiddleware');
+
 // GET /api/store
-// Ambil data store (Assume single store for now)
+// Ambil data store milik User yang login
 const getStore = async (req, res) => {
     try {
-        // Cari store pertama
-        let store = await prisma.store.findFirst();
+        const storeId = identifyStore(req);
+        if (!storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
-        // Jika belum ada, buat default dummy
-        if (!store) {
-            let user = await prisma.user.findFirst();
+        const store = await prisma.store.findFirst({
+            where: { id: storeId }
+        });
 
-            // FIX: Jika User juga belum ada, buat User dummy dulu
-            if (!user) {
-                console.log("⚠️ No user found. Creating default admin user for store...");
-                user = await prisma.user.create({
-                    data: {
-                        email: "admin@kasirotomatis.com",
-                        name: "Admin Kasir",
-                        role: "owner"
-                    }
-                });
-            }
-
-            store = await prisma.store.create({
-                data: {
-                    name: "Dapur QuackXel Default",
-                    ownerId: user.id
-                }
-            });
-            console.log("✅ Default Store created linked to user:", user.email);
-        }
+        if (!store) return res.status(404).json({ error: 'Store not found' });
 
         res.json({ success: true, data: store });
     } catch (error) {
         console.error("Get Store Error:", error);
-        res.status(500).json({ error: 'Failed to fetch store data' });
+        res.status(500).json({ error: `Failed to fetch store: ${error.message}` });
     }
 };
 
 // PUT /api/store
-// Update Info (Name only usually, images via separate endpoint or same)
+// Update Info
 const updateStore = async (req, res) => {
     try {
         const { name } = req.body;
-
-        let store = await prisma.store.findFirst();
-        if (!store) return res.status(404).json({ error: 'Store not found' });
+        if (!req.storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
         const updated = await prisma.store.update({
-            where: { id: store.id },
+            where: { id: req.storeId },
             data: { name }
         });
 
         res.json({ success: true, data: updated });
     } catch (error) {
         console.error("Update Store Error:", error);
-        res.status(500).json({ error: 'Failed to update store' });
+        res.status(500).json({ error: `Failed to update store: ${error.message}` });
     }
 };
 
@@ -79,25 +60,25 @@ const updateStore = async (req, res) => {
 const uploadLogo = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        if (!req.storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
-        let store = await prisma.store.findFirst();
+        const store = await prisma.store.findUnique({ where: { id: req.storeId } });
         if (!store) return res.status(404).json({ error: 'Store not found' });
 
         // Delete old logo
         if (store.logo) deleteFile(store.logo);
 
-        const filename = req.file.filename; // Multer saves filename
-        // const fullUrl = `${req.protocol}://${req.get('host')}/uploads/${filename}`; // Optional: save full URL or just filename
+        const filename = req.file.filename;
 
         const updated = await prisma.store.update({
-            where: { id: store.id },
+            where: { id: req.storeId },
             data: { logo: filename }
         });
 
         res.json({ success: true, data: updated });
     } catch (error) {
         console.error("Upload Logo Error:", error);
-        res.status(500).json({ error: 'Failed to upload logo' });
+        res.status(500).json({ error: `Failed to upload logo: ${error.message}` });
     }
 };
 
@@ -105,8 +86,9 @@ const uploadLogo = async (req, res) => {
 const uploadQris = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        if (!req.storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
-        let store = await prisma.store.findFirst();
+        const store = await prisma.store.findUnique({ where: { id: req.storeId } });
         if (!store) return res.status(404).json({ error: 'Store not found' });
 
         // Delete old qris
@@ -115,14 +97,14 @@ const uploadQris = async (req, res) => {
         const filename = req.file.filename;
 
         const updated = await prisma.store.update({
-            where: { id: store.id },
+            where: { id: req.storeId },
             data: { qrisImage: filename }
         });
 
         res.json({ success: true, data: updated });
     } catch (error) {
         console.error("Upload QRIS Error:", error);
-        res.status(500).json({ error: 'Failed to upload QRIS' });
+        res.status(500).json({ error: `Failed to upload QRIS: ${error.message}` });
     }
 };
 

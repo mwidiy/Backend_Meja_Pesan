@@ -7,7 +7,8 @@ const upload = require('../middleware/upload');
 const { verifyToken } = require('../middleware/authMiddleware');
 
 // GET /api/products
-router.get('/', verifyToken, productController.getAllProducts);
+// GET /api/products (Public with ?storeId=...)
+router.get('/', productController.getAllProducts);
 
 // GET /api/products/:id
 router.get('/:id', productController.getProductById);

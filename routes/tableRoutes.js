@@ -2,12 +2,14 @@ const express = require('express');
 const router = express.Router();
 const tableController = require('../controllers/tableController');
 
+const { verifyToken } = require('../middleware/authMiddleware');
+
 // Define routes
-router.get('/', tableController.getAllTables);
-router.post('/', tableController.createTable);
-router.get('/scan/:code', tableController.getTableByQrCode);
-router.put('/:id', tableController.updateTable);
-router.patch('/:id/status', tableController.updateTableStatus);
-router.delete('/:id', tableController.deleteTable);
+router.get('/', verifyToken, tableController.getAllTables);
+router.post('/', verifyToken, tableController.createTable);
+router.get('/scan/:code', tableController.getTableByQrCode); // Public (Scan doesn't need auth usually, or does it? Scan is usually public landing)
+router.put('/:id', verifyToken, tableController.updateTable);
+router.patch('/:id/status', verifyToken, tableController.updateTableStatus);
+router.delete('/:id', verifyToken, tableController.deleteTable);
 
 module.exports = router;

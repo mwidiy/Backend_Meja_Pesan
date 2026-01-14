@@ -3,10 +3,17 @@ const prisma = new PrismaClient();
 
 // GET /api/categories
 // Ambil semua kategori
+const { identifyStore } = require('../middleware/authMiddleware');
+
+// GET /api/categories
+// Ambil semua kategori
 const getAllCategories = async (req, res) => {
     try {
+        const storeId = identifyStore(req);
+        if (!storeId) return res.status(400).json({ error: "Store Context Required (storeId)" });
+
         const categories = await prisma.category.findMany({
-            where: { storeId: req.storeId }, // Multi-tenancy scope
+            where: { storeId: storeId }, // Multi-tenancy scope
             orderBy: {
                 name: 'asc'
             }

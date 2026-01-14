@@ -56,6 +56,21 @@ const googleLogin = async (req, res) => {
                 },
                 include: { store: true }
             });
+        } else if (!user.store) {
+            // EXISTING USER BUT NO STORE (ZOMBIE USER FIX) 🧟‍♂️ -> 🦸‍♂️
+            console.log(`⚠️ User ${email} found but has no Store. Creating default store...`);
+            const newStore = await prisma.store.create({
+                data: {
+                    name: `${user.name}'s Store`,
+                    ownerId: user.id,
+                    logo: picture
+                }
+            });
+            // Refresh user object to include the new store
+            user = await prisma.user.findUnique({
+                where: { id: user.id },
+                include: { store: true }
+            });
         }
 
         // 3. Generate JWT
@@ -83,7 +98,7 @@ const googleLogin = async (req, res) => {
 
     } catch (error) {
         console.error("Login Error:", error);
-        res.status(500).json({ message: "Internal Server Error" });
+        res.status(500).json({ message: `Login Failed: ${error.message}` });
     }
 };
 

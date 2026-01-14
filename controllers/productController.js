@@ -35,13 +35,18 @@ const removeImage = (filePath) => {
     }
 };
 
+const { identifyStore } = require('../middleware/authMiddleware');
+
 // GET /api/products
 // Ambil semua produk yang aktif
 const getAllProducts = async (req, res) => {
     const { status } = req.query;
     try {
+        const storeId = identifyStore(req);
+        if (!storeId) return res.status(400).json({ error: "Store Context Required (storeId)" });
+
         const whereClause = {
-            storeId: req.storeId // Enforce Store Scope
+            storeId: storeId // Enforce Store Scope
         };
         if (status === 'active') {
             whereClause.isActive = true;
@@ -121,10 +126,19 @@ const createProduct = async (req, res) => {
     }
 
     try {
+        // SAFETY CHECK: Ensure storeId exists
+        if (!req.storeId) {
+            return res.status(400).json({
+                success: false,
+                message: "Akses Ditolak: User tidak memiliki toko yang aktif."
+            });
+        }
+
         const newProduct = await prisma.product.create({
             data: {
                 name,
-                categoryId: parseInt(categoryId),
+                // Fix: Use 'connect' for relationship instead of scalar 'categoryId'
+                category: { connect: { id: parseInt(categoryId) } },
                 price: Number(price),
                 description,
                 image: imageUrl,
