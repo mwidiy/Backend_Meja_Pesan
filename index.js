@@ -78,6 +78,7 @@ app.use('/api/banners', bannerRoutes);
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/store', require('./routes/storeRoutes'));
 app.use('/api/auth', require('./routes/authRoutes')); // NEW: Google Login Route
+app.use('/api/payment', require('./routes/paymentRoutes')); // Duitku Payment
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen

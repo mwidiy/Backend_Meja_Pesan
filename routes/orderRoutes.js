@@ -17,8 +17,11 @@ router.get('/', verifyToken, orderController.getAllOrders);
 // GET /api/orders/export-pdf (Protected)
 router.get('/export-pdf', verifyToken, orderController.exportOrdersPdf);
 
-// PUT /api/orders/:id/status (Update Status & Payment)
+// PUT /api/orders/:id/status (Legacy/Specific)
 router.put('/:id/status', orderController.updateOrderStatus);
+
+// PUT /api/orders/:id (Generic Update - Used by Dev Button)
+router.put('/:id', orderController.updateOrderStatus);
 
 // GET /api/orders/:id (Ambil detail pesanan)
 router.get('/:id', orderController.getOrderById);
