@@ -3,16 +3,19 @@ const router = express.Router();
 const bannerController = require('../controllers/bannerController');
 const upload = require('../middleware/upload');
 
-// GET /api/banners -> getAllBanners
+const { verifyToken } = require('../middleware/authMiddleware');
+
+// GET /api/banners -> getAllBanners (Public or Private depending on usage, handled by identifyStore inside controller)
 router.get('/', bannerController.getAllBanners);
 
+// Protected Routes (Require Authentication)
 // POST /api/banners -> upload.single('image'), createBanner
-router.post('/', upload.single('image'), bannerController.createBanner);
+router.post('/', verifyToken, upload.single('image'), bannerController.createBanner);
 
 // PUT /api/banners/:id -> upload.single('image'), updateBanner
-router.put('/:id', upload.single('image'), bannerController.updateBanner);
+router.put('/:id', verifyToken, upload.single('image'), bannerController.updateBanner);
 
 // DELETE /api/banners/:id -> deleteBanner
-router.delete('/:id', bannerController.deleteBanner);
+router.delete('/:id', verifyToken, bannerController.deleteBanner);
 
 module.exports = router;

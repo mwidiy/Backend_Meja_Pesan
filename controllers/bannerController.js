@@ -85,18 +85,31 @@ const createBanner = async (req, res) => {
     const imageUrl = `http://${req.headers.host}/uploads/${req.file.filename}`;
 
     try {
+        // Ensure storeId is missing? No, verifyToken ensures we have user, but we should assert it.
+        // req.storeId comes from verifyToken
+        if (!req.storeId) {
+            return res.status(403).json({ success: false, message: "Store context missing. Are you logged in?" });
+        }
+
         const newBanner = await prisma.banner.create({
             data: {
                 title,
                 subtitle: subtitle || null,
                 highlightText: highlightText || null,
                 image: imageUrl,
-                isActive: true
+                isActive: true,
+                store: { connect: { id: req.storeId } } // Link to Store
             }
         });
 
-        // Trigger Realtime
+        // Trigger Realtime ONLY to this store's room
         if (req.io) {
+            req.io.to('store_' + req.storeId).emit('banners_updated');
+            // Keep global emit for backward compatibility if needed, or remove? 
+            // Better keep global for now until PWA is confirmed fully migrated to room logic?
+            // Actually PWA doesn't join socket room yet for banners? PWA waiting page joined.
+            // PWA Home page joins? Let's check PWA Home page later. 
+            // For now, emit global 'banners_updated' is what PWA listens to.
             req.io.emit('banners_updated');
         }
 
@@ -126,8 +139,10 @@ const updateBanner = async (req, res) => {
     const { title, subtitle, highlightText, isActive } = req.body;
 
     try {
-        // Cari banner lama
-        const existingBanner = await prisma.banner.findUnique({ where: { id: Number(id) } });
+        // Cari banner lama (Scoped to Store)
+        const existingBanner = await prisma.banner.findFirst({
+            where: { id: Number(id), storeId: req.storeId }
+        });
         if (!existingBanner) {
             return res.status(404).json({ success: false, message: "Banner tidak ditemukan" });
         }
@@ -184,7 +199,9 @@ const updateBanner = async (req, res) => {
 const deleteBanner = async (req, res) => {
     const { id } = req.params;
     try {
-        const banner = await prisma.banner.findUnique({ where: { id: Number(id) } });
+        const banner = await prisma.banner.findFirst({
+            where: { id: Number(id), storeId: req.storeId }
+        });
         if (!banner) return res.status(404).json({ success: false, message: "Banner tidak ditemukan" });
 
         // Hapus gambar fisiknya
