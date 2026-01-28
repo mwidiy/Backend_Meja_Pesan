@@ -41,13 +41,28 @@ const getStore = async (req, res) => {
 // Update Info
 const updateStore = async (req, res) => {
     try {
-        const { name } = req.body;
+        const { name, isOpen } = req.body;
         if (!req.storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
+        // Update Store
         const updated = await prisma.store.update({
             where: { id: req.storeId },
-            data: { name }
+            data: { name, isOpen }
         });
+
+        // Cascade Update: If isOpen is changing, update all Tables
+        if (isOpen !== undefined) {
+            await prisma.table.updateMany({
+                where: {
+                    location: {
+                        storeId: req.storeId
+                    }
+                },
+                data: {
+                    isActive: isOpen
+                }
+            });
+        }
 
         res.json({ success: true, data: updated });
     } catch (error) {

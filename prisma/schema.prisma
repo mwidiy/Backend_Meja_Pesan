@@ -25,6 +25,7 @@ model Store {
   name            String   @default("Nama Resto")
   logo            String? 
   qrisImage       String? 
+  isOpen          Boolean  @default(true)
   
   ownerId         Int      @unique 
   owner           User     @relation(fields: [ownerId], references: [id])
