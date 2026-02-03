@@ -678,7 +678,7 @@ const verifyRefund = async (req, res) => {
 
 const exportOrdersPdf = async (req, res) => {
     try {
-        const { status, type, search } = req.query; // Accept filters
+        const { status, type, search, startDate, endDate } = req.query; // Accept filters
 
         let whereClause = {};
 
@@ -704,6 +704,21 @@ const exportOrdersPdf = async (req, res) => {
                 { customerName: { contains: search } },
                 { items: { some: { product: { name: { contains: search } } } } }
             ];
+        }
+
+        // 4. Date Filter (New)
+        if (startDate && endDate) {
+            // Adjust dates to cover full days
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0); // Start of day
+
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999); // End of day
+
+            whereClause.createdAt = {
+                gte: start,
+                lte: end
+            };
         }
 
         const orders = await prisma.order.findMany({
