@@ -248,6 +248,11 @@ const deleteProduct = async (req, res) => {
             removeImage(product.image);
         }
 
+        // Hapus related OrderItems terlebih dahulu (Cascade Delete)
+        await prisma.orderItem.deleteMany({
+            where: { productId: Number(id) }
+        });
+
         await prisma.product.delete({
             where: { id: Number(id) }
         });
