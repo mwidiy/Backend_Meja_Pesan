@@ -143,6 +143,8 @@ const createProduct = async (req, res) => {
                 description,
                 image: imageUrl,
                 isActive: true,
+                ar3dModel: req.body.ar3dModel || null,
+                isArActive: req.body.isArActive === 'true' || false,
                 store: { connect: { id: req.storeId } } // Connect to Store
             },
             include: {
@@ -178,7 +180,7 @@ const createProduct = async (req, res) => {
 // Edit Menu
 const updateProduct = async (req, res) => {
     const { id } = req.params;
-    const { name, categoryId, price, description, isActive } = req.body;
+    const { name, categoryId, price, description, isActive, ar3dModel, isArActive } = req.body;
     let imageUrl = req.body.image;
 
     if (req.file) {
@@ -206,7 +208,9 @@ const updateProduct = async (req, res) => {
                 price: price !== undefined ? Number(price) : undefined,
                 description: description !== undefined ? description : undefined,
                 image: imageUrl !== undefined ? imageUrl : undefined,
-                isActive: isActive !== undefined ? (String(isActive) === 'true') : undefined
+                isActive: isActive !== undefined ? (String(isActive) === 'true') : undefined,
+                ar3dModel: ar3dModel !== undefined ? ar3dModel : undefined,
+                isArActive: isArActive !== undefined ? (String(isArActive) === 'true') : undefined
             },
             include: {
                 category: true
