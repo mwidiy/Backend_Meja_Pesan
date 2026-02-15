@@ -2,13 +2,16 @@ const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/paymentController');
 
-// POST /api/payment/create-transaction
+// 1. Create Transaction (Get QR)
 router.post('/create-transaction', paymentController.createTransaction);
 
-// POST /api/payment/callback
+// 2. Webhook Callback
+// Pakasir sends URL-encoded or JSON. Express handles JSON by default, 
+// if URL-encoded is needed add express.urlencoded middleware here.
+// Safest to add both middleware in index.js or specific here.
 router.post('/callback', express.urlencoded({ extended: true }), paymentController.handleCallback);
-// Note: Duitku might send body as x-www-form-urlencoded, updated middleware usage if needed. 
-// Express default json body parser might not catch if content-type is form-urlencoded.
-// Adding inline middleware for safety if main index doesn't have it globally (index.js usually has json, not urlencoded)
+
+// 3. Polling Status (Backup)
+router.get('/check-status/:orderId', paymentController.checkStatus);
 
 module.exports = router;
