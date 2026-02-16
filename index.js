@@ -140,6 +140,7 @@ app.use('/api/ar', require('./routes/arRoutes'));
 app.use('/api/store', require('./routes/storeRoutes'));
 app.use('/api/auth', require('./routes/authRoutes')); // NEW: Google Login Route
 app.use('/api/payment', require('./routes/paymentRoutes')); // Duitku Payment
+app.use('/api/withdraw', require('./routes/withdrawalRoutes')); // NEW: Withdrawal
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen

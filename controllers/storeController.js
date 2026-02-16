@@ -41,13 +41,22 @@ const getStore = async (req, res) => {
 // Update Info
 const updateStore = async (req, res) => {
     try {
-        const { name, isOpen } = req.body;
+        const { name, isOpen, bankName, bankNumber, bankHolder, ewalletType, ewalletNumber, ewalletName } = req.body;
         if (!req.storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
         // Update Store
         const updated = await prisma.store.update({
             where: { id: req.storeId },
-            data: { name, isOpen }
+            data: {
+                name,
+                isOpen,
+                bankName,
+                bankNumber,
+                bankHolder,
+                ewalletType,
+                ewalletNumber,
+                ewalletName
+            }
         });
 
         // Cascade Update: If isOpen is changing, update all Tables

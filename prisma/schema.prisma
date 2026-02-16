@@ -39,6 +39,35 @@ model Store {
   banners         Banner[]
   orders          Order[]
   arAssets        ArAsset[]
+  withdrawals     Withdrawal[]
+
+  // Bank Details
+  bankName        String?   // Dropdown: BCA, BRI, etc.
+  bankNumber      String?
+  bankHolder      String?
+  
+  // E-Wallet Details
+  ewalletType     String?   // Fixed: "ShopeePay"
+  ewalletNumber   String?
+  ewalletName     String?
+}
+
+model Withdrawal {
+  id            Int      @id @default(autoincrement())
+  amount        Int
+  status        String   @default("Pending") // Pending, Approved, Rejected
+  method        String   // "DANA", "Bank Transfer"
+  
+  // Snapshot details at time of request
+  bankName      String
+  accountNumber String
+  accountName   String
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  storeId       Int
+  store         Store    @relation(fields: [storeId], references: [id])
 }
 
 // 2. MEJA & QR MANAGEMENT
