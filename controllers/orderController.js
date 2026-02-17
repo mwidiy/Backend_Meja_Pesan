@@ -1,7 +1,8 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-const PDFDocument = require('pdfkit-table');
-// Ensure you have ran: npm install pdfkit pdfkit-table
+const PDFDocument = require('pdfkit');
+// Ensure you have ran: npm install pdfkit
+
 
 // Helper untuk generate Transaction Code
 // Format: TRX-[YYYYMMDD]-[RANDOM4DIGIT] (Contoh: TRX-20240101-A1B2)
@@ -678,9 +679,11 @@ const verifyRefund = async (req, res) => {
 
 const exportOrdersPdf = async (req, res) => {
     try {
-        const { status, type, search, startDate, endDate } = req.query; // Accept filters
+        const { status, type, search, startDate, endDate } = req.query;
+        const BATCH_SIZE = 500;
 
         let whereClause = {};
+        if (req.storeId) whereClause.storeId = req.storeId;
 
         // 1. Status Filter
         if (status && status !== 'All') {
@@ -701,78 +704,151 @@ const exportOrdersPdf = async (req, res) => {
         if (search) {
             whereClause.OR = [
                 { transactionCode: { contains: search } },
-                { customerName: { contains: search } },
-                { items: { some: { product: { name: { contains: search } } } } }
+                { customerName: { contains: search } }
             ];
         }
 
-        // 4. Date Filter (New)
+        // 4. Date Filter
         if (startDate && endDate) {
-            // Adjust dates to cover full days
             const start = new Date(startDate);
-            start.setHours(0, 0, 0, 0); // Start of day
-
+            start.setHours(0, 0, 0, 0);
             const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999); // End of day
-
-            whereClause.createdAt = {
-                gte: start,
-                lte: end
-            };
+            end.setHours(23, 59, 59, 999);
+            whereClause.createdAt = { gte: start, lte: end };
         }
 
-        const orders = await prisma.order.findMany({
-            where: whereClause,
-            orderBy: { createdAt: 'desc' },
-            include: { items: { include: { product: true } } }
+        // --- STEP 1: CALCULATE TOTALS (FAST AGGREGATE) ---
+        // We need totals for the header before we start streaming rows
+        const revenueWhere = { ...whereClause };
+        if (revenueWhere.status) delete revenueWhere.status; // Remove status filter to calculate revenue of Completed orders in this period
+
+        const aggregations = await prisma.order.aggregate({
+            _sum: { totalAmount: true },
+            _count: { id: true },
+            where: {
+                ...revenueWhere,
+                status: 'Completed' // Only count revenue from completed
+            }
         });
 
-        // Create PDF
-        const doc = new PDFDocument({ margin: 30, size: 'A4' });
+        const totalRevenue = aggregations._sum.totalAmount || 0;
+        const totalCompletedCount = aggregations._count.id || 0;
 
-        // Stream Response
+        // Also get total count of ALL transactions (matching filter)
+        const totalTransactions = await prisma.order.count({ where: whereClause });
+
+
+        // --- STEP 2: SETUP PDF STREAM ---
+        const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: false });
+
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'attachment; filename=Laporan_Riwayat.pdf');
+
         doc.pipe(res);
 
-        // Header
-        doc.fontSize(20).text('Laporan Riwayat Pesanan', { align: 'center' });
-        doc.moveDown();
-        doc.fontSize(10).text(`Generated: ${new Date().toLocaleString()}`, { align: 'right' });
-        doc.moveDown();
-
-        // Summary Code
-        const totalRevenue = orders
-            .filter(o => o.status === 'Completed')
-            .reduce((sum, o) => sum + o.totalAmount, 0);
-
-        doc.fontSize(12).text(`Total Pendapatan (Selesai): Rp ${totalRevenue.toLocaleString('id-ID')}`);
-        doc.text(`Total Transaksi: ${orders.length}`);
+        // --- STEP 3: WRITE HEADER & SUMMARY ---
+        doc.fontSize(18).text('Laporan Riwayat Pesanan', { align: 'center' });
+        doc.fontSize(10).text(`Generated: ${new Date().toLocaleString()}`, { align: 'center' });
         doc.moveDown();
 
-        // Table
-        const table = {
-            title: "Daftar Transaksi",
-            headers: ["No", "Kode", "Waktu", "Status", "Tipe", "Total"],
-            rows: orders.map((o, index) => [
-                index + 1,
-                o.transactionCode || o.id,
-                new Date(o.createdAt).toLocaleString('id-ID'),
-                o.status,
-                o.orderType || '-',
-                `Rp ${o.totalAmount.toLocaleString('id-ID')}`
-            ]),
-        };
+        doc.fontSize(12).font('Helvetica-Bold').text(`Total Pendapatan (Selesai): Rp ${Number(totalRevenue).toLocaleString('id-ID')}`);
+        doc.text(`Total Transaksi: ${totalTransactions}`);
+        doc.text(`Total Sukses: ${totalCompletedCount}`);
+        doc.moveDown();
 
-        await doc.table(table, {
-            width: 535,
-        });
+        // Table Header
+        const tableTop = doc.y;
+        const colX = [30, 60, 180, 290, 380, 470];
+
+        doc.font('Helvetica-Bold').fontSize(10);
+        doc.text('No', colX[0], tableTop);
+        doc.text('Kode', colX[1], tableTop);
+        doc.text('Pelanggan', colX[2], tableTop);
+        doc.text('Waktu', colX[3], tableTop);
+        doc.text('Status', colX[4], tableTop);
+        doc.text('Total', colX[5], tableTop);
+
+        doc.moveTo(30, tableTop + 15).lineTo(565, tableTop + 15).stroke();
+
+        let y = tableTop + 25;
+        let rowCount = 0;
+
+        // --- STEP 4: BATCH FETCH & STREAM ---
+        let cursor = null;
+        let hasMore = true;
+        let batchIndex = 0;
+
+        doc.font('Helvetica').fontSize(9);
+
+        while (hasMore) {
+            batchIndex++;
+            console.log(`[PDF] Fetching batch ${batchIndex}...`);
+
+            // Fetch Batch
+            const batchOrders = await prisma.order.findMany({
+                where: whereClause,
+                take: BATCH_SIZE,
+                skip: cursor ? 1 : 0,
+                cursor: cursor ? { id: cursor } : undefined,
+                orderBy: { id: 'desc' },
+                select: {
+                    id: true,
+                    transactionCode: true,
+                    createdAt: true,
+                    status: true,
+                    orderType: true,
+                    totalAmount: true,
+                    customerName: true
+                }
+            });
+
+            if (batchOrders.length === 0) {
+                hasMore = false;
+                break;
+            }
+
+            // Render Batch
+            batchOrders.forEach((o) => {
+                rowCount++;
+
+                // Page Break Check
+                if (y > 750) {
+                    doc.addPage();
+                    y = 40;
+                }
+
+                const dateStr = new Date(o.createdAt).toLocaleString('id-ID', {
+                    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                });
+
+                doc.text(rowCount, colX[0], y);
+                doc.text(o.transactionCode || o.id, colX[1], y, { width: 110 });
+                doc.text(o.customerName || '-', colX[2], y, { width: 100, ellipsis: true });
+                doc.text(dateStr, colX[3], y);
+                doc.text(o.status, colX[4], y);
+                doc.text(`Rp ${Number(o.totalAmount).toLocaleString('id-ID')}`, colX[5], y);
+
+                y += 20;
+            });
+
+            // Update Cursor
+            cursor = batchOrders[batchOrders.length - 1].id;
+
+            // Safety break 
+            if (batchOrders.length < BATCH_SIZE) {
+                hasMore = false;
+            }
+        }
 
         doc.end();
 
     } catch (error) {
         console.error('Error generating PDF:', error);
-        res.status(500).send('Gagal membuat PDF');
+        if (!res.headersSent) {
+            res.status(500).send('Gagal membuat PDF');
+        } else {
+            res.end(); // Close stream
+        }
     }
 };
 
@@ -785,7 +861,6 @@ module.exports = {
     getOrdersByBatch,
     requestCancel,
     approveCancel,
-    rejectCancel,
     rejectCancel,
     verifyRefund,
     exportOrdersPdf

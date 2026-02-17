@@ -144,6 +144,24 @@ app.use('/api/withdraw', require('./routes/withdrawalRoutes')); // NEW: Withdraw
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen
-server.listen(PORT, () => {
+const runningServer = server.listen(PORT, () => {
   console.log(`✅ Server berjalan di http://localhost:${PORT}`);
 });
+
+// --- GRACEFUL SHUTDOWN ---
+const gracefulShutdown = () => {
+  console.log('Received kill signal, shutting down gracefully');
+  runningServer.close(() => {
+    console.log('Closed out remaining connections');
+    process.exit(0);
+  });
+
+  // Force close after 10s
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
