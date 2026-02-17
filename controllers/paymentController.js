@@ -124,19 +124,40 @@ const handleCallback = async (req, res) => {
 
             if (order) {
                 if (order.paymentStatus !== 'Paid') {
-                    await prisma.order.update({
+                    // Update Payment AND Status if needed
+                    const newStatus = order.status === 'WaitingPayment' ? 'Pending' : order.status;
+
+                    const updatedOrder = await prisma.order.update({
                         where: { transactionCode: order_id.toString() },
-                        data: { paymentStatus: 'Paid' }
+                        data: {
+                            paymentStatus: 'Paid',
+                            status: newStatus
+                        },
+                        include: {
+                            table: { include: { location: true } },
+                            items: { include: { product: true } }
+                        }
                     });
                     console.log(`[Pakasir] Order ${order_id} UPDATED to Paid (via Webhook)`);
-                }
 
-                if (req.io) {
-                    req.io.emit('order_update', {
-                        transactionCode: order_id,
-                        status: 'Paid',
-                        source: 'webhook'
-                    });
+                    // EMIT NEW ORDER if it was waiting
+                    if (req.io) {
+                        // Emit update first
+                        req.io.emit('order_update', {
+                            transactionCode: order_id,
+                            status: 'Paid',
+                            source: 'webhook'
+                        });
+
+                        // If it was 'WaitingPayment', now treat it as 'new_order' for Kasir
+                        if (order.status === 'WaitingPayment') {
+                            req.io.emit('new_order', updatedOrder);
+                            if (updatedOrder.storeId) {
+                                req.io.to(`store_${updatedOrder.storeId}`).emit('new_order', updatedOrder);
+                            }
+                            console.log(`📡 Delayed 'new_order' Emitted for ${order_id}`);
+                        }
+                    }
                 }
                 return res.status(200).json({ status: 'ok', message: 'Updated to Paid' });
             } else {
@@ -162,20 +183,36 @@ const checkStatus = async (req, res) => {
     if (!orderId || !amount) return res.status(400).json({ message: 'Missing params' });
 
     try {
-        // Only log periodically or if status changes to avoid spam, 
-        // but for now log every check to confirm 'completed' status
-        // console.log(`[Pakasir] Polling ${orderId}...`);
-
         const result = await fetchTransactionStatus(orderId, amount);
 
         if (result.transaction && isSuccessStatus(result.transaction.status)) {
             const order = await prisma.order.findUnique({ where: { transactionCode: orderId } });
+
             if (order && order.paymentStatus !== 'Paid') {
-                await prisma.order.update({
+                const newStatus = order.status === 'WaitingPayment' ? 'Pending' : order.status;
+
+                const updatedOrder = await prisma.order.update({
                     where: { transactionCode: orderId },
-                    data: { paymentStatus: 'Paid' }
+                    data: {
+                        paymentStatus: 'Paid',
+                        status: newStatus
+                    },
+                    include: {
+                        table: { include: { location: true } },
+                        items: { include: { product: true } }
+                    }
                 });
-                if (req.io) req.io.emit('order_update', { transactionCode: orderId, status: 'Paid' });
+
+                if (req.io) {
+                    req.io.emit('order_update', { transactionCode: orderId, status: 'Paid' });
+
+                    if (order.status === 'WaitingPayment') {
+                        req.io.emit('new_order', updatedOrder);
+                        if (updatedOrder.storeId) {
+                            req.io.to(`store_${updatedOrder.storeId}`).emit('new_order', updatedOrder);
+                        }
+                    }
+                }
                 console.log(`[Pakasir] Polling found PAID status for ${orderId}`);
             }
             return res.json({ success: true, status: 'Paid' });
@@ -189,8 +226,44 @@ const checkStatus = async (req, res) => {
     }
 };
 
+// 4. Manual Expire for Timer
+const expireOrder = async (req, res) => {
+    try {
+        const { orderId } = req.body;
+
+        const order = await prisma.order.findUnique({ where: { transactionCode: orderId } });
+        if (!order) return res.status(404).json({ message: 'Order not found' });
+
+        // Safety Check: Don't cancel paid orders
+        if (order.paymentStatus === 'Paid') {
+            return res.json({ success: false, message: 'Order already Paid' });
+        }
+
+        // Only cancel if it's waiting for payment
+        if (order.status !== 'WaitingPayment') {
+            return res.json({ success: false, message: 'Order status is not valid for expiry' });
+        }
+
+        await prisma.order.update({
+            where: { transactionCode: orderId },
+            data: {
+                status: 'Cancelled',
+                paymentStatus: 'Expired'
+            }
+        });
+
+        console.log(`Order ${orderId} marked as EXPIRED (Timer Timeout)`);
+        res.json({ success: true, message: 'Order expired successfully' });
+
+    } catch (error) {
+        console.error("Expire Error:", error);
+        res.status(500).json({ success: false });
+    }
+};
+
 module.exports = {
     createTransaction,
     handleCallback,
-    checkStatus
+    checkStatus,
+    expireOrder
 };

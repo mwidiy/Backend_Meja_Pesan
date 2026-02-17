@@ -41,7 +41,7 @@ const getStore = async (req, res) => {
 // Update Info
 const updateStore = async (req, res) => {
     try {
-        const { name, isOpen, bankName, bankNumber, bankHolder, ewalletType, ewalletNumber, ewalletName } = req.body;
+        const { name, isOpen, bankName, bankNumber, bankHolder, ewalletType, ewalletNumber, ewalletName, whatsappNumber } = req.body;
         if (!req.storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
         // Update Store
@@ -55,7 +55,8 @@ const updateStore = async (req, res) => {
                 bankHolder,
                 ewalletType,
                 ewalletNumber,
-                ewalletName
+                ewalletName,
+                whatsappNumber
             }
         });
 

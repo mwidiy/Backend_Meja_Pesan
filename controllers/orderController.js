@@ -133,6 +133,7 @@ const createOrder = async (req, res) => {
         }
         // --- SMART QUEUE LOGIC END ---
 
+
         // 7. Daily Queue Number Logic (New - Smart Queue 2.0)
         // Scope Queue Number to Store? Usually yes.
         const todayStart = new Date();
@@ -148,6 +149,11 @@ const createOrder = async (req, res) => {
         });
         const nextQueueNumber = todayOrderCount + 1;
 
+        // LOGIC FIX: QRIS Order starts as 'WaitingPayment', NOT 'Pending'
+        // This prevents Kasir from seeing unpaid orders immediately
+        const isQrisUnpaid = paymentMethod === 'qris' && (!paymentStatus || paymentStatus === 'Unpaid');
+        const initialStatus = isQrisUnpaid ? 'WaitingPayment' : 'Pending';
+
         // 6. Prisma Transaction (Atomic Create)
         const newOrder = await prisma.$transaction(async (tx) => {
             const orderData = {
@@ -159,7 +165,7 @@ const createOrder = async (req, res) => {
                 totalAmount: calculatedTotal,
                 note: note || "",
                 deliveryAddress: deliveryAddress || "",
-                status: 'Pending',
+                status: initialStatus,
                 paymentMethod: paymentMethod || null,
                 paymentStatus: paymentStatus || 'Unpaid',
                 estimatedTime: finalEstimatedTime, // Added Smart Estimation
@@ -193,7 +199,8 @@ const createOrder = async (req, res) => {
         });
 
         // 7. Real-time Trigger
-        if (req.io) {
+        // Only emit if NOT waiting for payment. If waiting, emit later after payment success.
+        if (req.io && !isQrisUnpaid) {
             // Emit to Global (Legacy Support)
             req.io.emit('new_order', newOrder);
 
@@ -202,6 +209,8 @@ const createOrder = async (req, res) => {
                 req.io.to(`store_${storeId}`).emit('new_order', newOrder);
             }
             console.log(`📡 Emitted 'new_order': ${newOrder.transactionCode} (Store: ${storeId})`);
+        } else if (isQrisUnpaid) {
+            console.log(`Creating QRIS Order ${newOrder.transactionCode} - Waiting for Payment (No Socket Emit yet)`);
         }
 
         res.status(201).json({
@@ -391,7 +400,8 @@ const getOrderByTransactionCode = async (req, res) => {
                 },
                 table: {
                     include: { location: true }
-                }
+                },
+                store: { select: { whatsappNumber: true } }
             }
         });
 

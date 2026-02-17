@@ -12,6 +12,10 @@ router.post('/create-transaction', paymentController.createTransaction);
 router.post('/callback', express.urlencoded({ extended: true }), paymentController.handleCallback);
 
 // 3. Polling Status (Backup)
+// 3. Polling Status (Backup)
 router.get('/check-status/:orderId', paymentController.checkStatus);
+
+// 4. Expire Order (Timer Timeout)
+router.post('/expire-order', express.urlencoded({ extended: true }), paymentController.expireOrder);
 
 module.exports = router;

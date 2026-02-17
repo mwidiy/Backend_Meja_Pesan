@@ -25,6 +25,7 @@ model Store {
   name            String   @default("Nama Resto")
   logo            String? 
   qrisImage       String? 
+  whatsappNumber  String? // NEW: Dynamic WA Number 
   isOpen          Boolean  @default(true)
   
   ownerId         Int      @unique 
