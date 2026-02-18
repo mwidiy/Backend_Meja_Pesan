@@ -39,12 +39,28 @@ const createOrder = async (req, res) => {
             return res.status(400).json({ error: 'Customer name dan items harus diisi.' });
         }
 
+        // Security: Limit Customer Name Length
+        if (customerName.length > 20) {
+            return res.status(400).json({ error: 'Nama customer terlalu panjang (max 20 karakter).' });
+        }
+
         // Multi-Tenancy Check: Store ID is mandatory now (except maybe for legacy calls, handled carefully)
         if (!storeId) {
             // Note: If you have legacy clients, you might fallback or warn.
             // But for PWA connected to Multi-Tenant Backend, this is key.
             console.warn("⚠️ Warning: Order created without storeId!");
         }
+
+        // --- SMART QUEUE LOGIC START (Moved Up for Pricing) ---
+        // 1. Fetch products to get prepTime AND PRICE (Security: Server-side pricing)
+        const productIds = items.map(item => item.productId);
+        const products = await prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, prepTime: true, name: true, price: true } // Added price
+        });
+
+        const productMap = {};
+        products.forEach(p => productMap[p.id] = p);
 
         // 2. Parsed Data & Logic
         let parsedTableId = null;
@@ -84,41 +100,43 @@ const createOrder = async (req, res) => {
 
         // 3. Logic Note Handling (Deleted - separated into note & deliveryAddress)
 
-        // 4. Hitung Total Amount dari items & Siapkan Data Items
+        // 4. Hitung Total Amount dari items & Siapkan Data Items (SECURE VERSION)
         let calculatedTotal = 0;
-        const orderItemsData = items.map(item => {
-            const itemTotal = item.price * item.quantity;
+        const orderItemsData = [];
+
+        let maxPrepTime = 0;
+        let isFastLane = true;
+
+        for (const item of items) {
+            const product = productMap[item.productId];
+            if (!product) {
+                return res.status(400).json({ error: `Produk dengan ID ${item.productId} tidak ditemukan.` });
+            }
+
+            if (item.quantity <= 0) {
+                return res.status(400).json({ error: `Quantity harus lebih dari 0.` });
+            }
+
+            // SECURITY: Use server price, ignore client price
+            const realPrice = Number(product.price);
+            const itemTotal = realPrice * item.quantity;
             calculatedTotal += itemTotal;
-            return {
+
+            orderItemsData.push({
                 productId: item.productId,
                 quantity: item.quantity,
-                priceSnapshot: item.price, // Harga saat checkout
+                priceSnapshot: realPrice, // Used Server Price
                 // note: item.note
-            };
-        });
+            });
+
+            // Lane Logic
+            const pt = product.prepTime || 5;
+            if (pt > 5) isFastLane = false;
+            if (pt > maxPrepTime) maxPrepTime = pt;
+        }
 
         // 5. Generate Transaction Code Unik
         const transactionCode = generateTransactionCode();
-
-        // --- SMART QUEUE LOGIC START ---
-        // 1. Fetch products to get prepTime
-        const productIds = items.map(item => item.productId);
-        const products = await prisma.product.findMany({
-            where: { id: { in: productIds } },
-            select: { id: true, prepTime: true, name: true }
-        });
-
-        const prepMap = {};
-        products.forEach(p => prepMap[p.id] = p.prepTime || 5); // Default 5 mins
-
-        // 2. Determine Lane
-        let maxPrepTime = 0;
-        let isFastLane = true;
-        items.forEach(item => {
-            const pt = prepMap[item.productId];
-            if (pt > 5) isFastLane = false;
-            if (pt > maxPrepTime) maxPrepTime = pt;
-        });
 
         // 3. Set Estimated Time String
         let finalEstimatedTime = "15-20 Menit";

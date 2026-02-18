@@ -144,9 +144,60 @@ app.use('/api/withdraw', require('./routes/withdrawalRoutes')); // NEW: Withdraw
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen
-const runningServer = server.listen(PORT, () => {
-  console.log(`✅ Server berjalan di http://localhost:${PORT}`);
-});
+// --- SERVER LISTEN WITH AUTO-RECOVERY ---
+const startServer = () => {
+  const runningServer = server.listen(PORT, () => {
+    console.log(`✅ Server berjalan di http://localhost:${PORT}`);
+  });
+
+  runningServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`⚠️  Port ${PORT} is in use. Attempting to kill occupying process...`);
+
+      const { exec } = require('child_process');
+      // Find and kill process occupying the port
+      exec(`netstat -ano | findstr :${PORT}`, (error, stdout) => {
+        if (stdout) {
+          const lines = stdout.trim().split('\n');
+          // Extract PIDs (last token in line)
+          const pids = lines.map(l => l.trim().split(/\s+/).pop()).filter(pid => pid && pid !== '0');
+
+          if (pids.length > 0) {
+            const uniquePids = [...new Set(pids)];
+            console.log(`🔫 Killing PIDs: ${uniquePids.join(', ')}`);
+
+            uniquePids.forEach(pid => {
+              exec(`taskkill /F /PID ${pid}`, (err) => {
+                if (err) console.error(`   Failed to kill ${pid}: ${err.message}`);
+                else console.log(`   Killed ${pid}`);
+              });
+            });
+
+            // Retry after a short delay
+            setTimeout(() => {
+              console.log('🔄 Retrying server start...');
+              runningServer.close(); // Ensure handle is closed
+              startServer(); // Recursive retry
+            }, 1000);
+          } else {
+            console.error(`❌ Port ${PORT} is in use but no PID found.`);
+            process.exit(1);
+          }
+        } else {
+          console.error(`❌ Port ${PORT} is in use but netstat returned empty.`);
+          process.exit(1);
+        }
+      });
+    } else {
+      console.error('❌ Server Error:', err);
+      process.exit(1);
+    }
+  });
+
+  return runningServer;
+};
+
+const activeServer = startServer();
 
 // --- GRACEFUL SHUTDOWN ---
 const gracefulShutdown = () => {
