@@ -126,20 +126,43 @@ exports.updateTable = async (req, res) => {
             data: updateData,
             include: { location: true },
         });
+
+        // SOCKET & LOGIC: If table is deactivated
+        if (isActive === false) {
+            // 1. Auto-cancel unpaid orders for this table (WaitingPayment or Pending)
+            const pendingOrders = await prisma.order.findMany({
+                where: { tableId: parseInt(id), status: { in: ['WaitingPayment', 'Pending'] } }
+            });
+
+            for (const order of pendingOrders) {
+                await prisma.order.update({
+                    where: { id: order.id },
+                    data: { status: 'Cancelled', cancellationReason: 'Kantin menutup/menonaktifkan meja ini' }
+                });
+                // Notify user their specific order is cancelled
+                if (req.io) req.io.emit('order_status_updated', { ...order, status: 'Cancelled', cancelReason: 'Kantin menutup/menonaktifkan meja ini' });
+            }
+
+            // 2. Broadcast table deactivation to ALL users on this table
+            if (req.io) {
+                console.log(`[Socket] Emitting table_deactivated for Table ${id}`);
+                req.io.emit('table_deactivated', { tableId: parseInt(id) });
+            }
+        }
+
         res.json(table);
     } catch (error) {
         res.status(500).json({ error: `Failed to update table: ${error.message}` });
     }
 };
 
-// Update table status
+// Update table status (KASIR toggle endpoint)
 exports.updateTableStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { isActive } = req.body;
 
-        // Ownership check implicit in update but better explicit if rigorous, 
-        // but prisma update where id matches is simple. Better check location ownership:
+        // Ownership check
         const exists = await prisma.table.findFirst({
             where: {
                 id: parseInt(id),
@@ -153,6 +176,36 @@ exports.updateTableStatus = async (req, res) => {
             data: { isActive },
             include: { location: true },
         });
+
+        // SOCKET: Emit based on activation/deactivation
+        if (isActive === false) {
+            // 1. Auto-cancel unpaid orders for this table
+            const pendingOrders = await prisma.order.findMany({
+                where: { tableId: parseInt(id), status: { in: ['WaitingPayment', 'Pending'] } }
+            });
+
+            for (const order of pendingOrders) {
+                await prisma.order.update({
+                    where: { id: order.id },
+                    data: { status: 'Cancelled', cancellationReason: 'Kantin menutup/menonaktifkan meja ini' }
+                });
+                // Notify KASIR dashboard that order is cancelled
+                if (req.io) req.io.emit('order_status_updated', { ...order, status: 'Cancelled', cancelReason: 'Kantin menutup/menonaktifkan meja ini' });
+            }
+
+            // 2. Broadcast to PWA users on this table
+            if (req.io) {
+                console.log(`[Socket] table_deactivated → Table ${id}`);
+                req.io.emit('table_deactivated', { tableId: parseInt(id) });
+            }
+        } else if (isActive === true) {
+            // Re-activation: tell PWA users they can come back
+            if (req.io) {
+                console.log(`[Socket] table_activated → Table ${id}`);
+                req.io.emit('table_activated', { tableId: parseInt(id) });
+            }
+        }
+
         res.json(table);
     } catch (error) {
         res.status(500).json({ error: error.message });

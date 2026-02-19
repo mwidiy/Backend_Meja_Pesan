@@ -92,6 +92,16 @@ const createTransaction = async (req, res) => {
                         data: { paymentStatus: 'Paid' }
                     });
                 }
+
+                // EMIT SOCKET UPDATE (Instant Redirect)
+                if (req.io) {
+                    req.io.emit('order_update', {
+                        transactionCode: orderId.toString(),
+                        status: 'Paid',
+                        source: 'create-check'
+                    });
+                }
+
                 return res.json({ success: true, status: 'Paid', message: 'Transaction verified as Paid' });
             } else {
                 return res.json({ success: true, status: 'Pending', message: 'Transaction exists but pending' });
@@ -183,10 +193,19 @@ const checkStatus = async (req, res) => {
     if (!orderId || !amount) return res.status(400).json({ message: 'Missing params' });
 
     try {
+        // OPTIMIZATION: Check Local DB First!
+        // Prevents race condition where Webhook updates DB but External API is lagging
+        const localOrder = await prisma.order.findUnique({ where: { transactionCode: orderId } });
+
+        if (localOrder && localOrder.paymentStatus === 'Paid') {
+            return res.json({ success: true, status: 'Paid', message: 'Verified from Local DB' });
+        }
+
+        // Fallback: Check External API (Pakasir)
         const result = await fetchTransactionStatus(orderId, amount);
 
         if (result.transaction && isSuccessStatus(result.transaction.status)) {
-            const order = await prisma.order.findUnique({ where: { transactionCode: orderId } });
+            const order = localOrder || await prisma.order.findUnique({ where: { transactionCode: orderId } });
 
             if (order && order.paymentStatus !== 'Paid') {
                 const newStatus = order.status === 'WaitingPayment' ? 'Pending' : order.status;

@@ -33,12 +33,14 @@ router.put('/:id/status', verifyToken, orderController.updateOrderStatus);
 // PUT /api/orders/:id (Generic Update) - PROTECTED
 router.put('/:id', verifyToken, orderController.updateOrderStatus);
 
+// GET /api/orders/code/:code (Ambil pesanan by Transaction Code)
+router.get('/code/:code', orderController.getOrderByTransactionCode);
+
 // GET /api/orders/:id (Ambil detail pesanan)
 router.get('/:id', orderController.getOrderById);
 
 // GET /api/orders/code/:code (Ambil pesanan by Transaction Code)
-// GET /api/orders/code/:code (Ambil pesanan by Transaction Code)
-router.get('/code/:code', orderController.getOrderByTransactionCode);
+
 
 // --- CANCELLATION & REFUND ROUTING ---
 // POST /api/orders/cancel (Request/Auto Cancel dari User)
