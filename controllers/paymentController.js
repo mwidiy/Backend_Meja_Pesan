@@ -56,7 +56,7 @@ const createTransaction = async (req, res) => {
         });
 
         const text = await response.text();
-        console.log("[Pakasir] Raw API Response:", text);
+        if (process.env.NODE_ENV !== 'production') console.log("[Pakasir] Raw API Response:", text);
 
         let result;
         try {
@@ -87,19 +87,44 @@ const createTransaction = async (req, res) => {
 
             if (check.transaction && isSuccessStatus(check.transaction.status)) {
                 if (order && order.paymentStatus !== 'Paid') {
-                    await prisma.order.update({
-                        where: { transactionCode: orderId.toString() },
-                        data: { paymentStatus: 'Paid' }
-                    });
-                }
+                    // Fix: Update Status to Pending if it was WaitingPayment
+                    const newStatus = order.status === 'WaitingPayment' ? 'Pending' : order.status;
 
-                // EMIT SOCKET UPDATE (Instant Redirect)
-                if (req.io) {
-                    req.io.emit('order_update', {
-                        transactionCode: orderId.toString(),
-                        status: 'Paid',
-                        source: 'create-check'
+                    const updatedOrder = await prisma.order.update({
+                        where: { transactionCode: orderId.toString() },
+                        data: {
+                            paymentStatus: 'Paid',
+                            status: newStatus
+                        },
+                        include: {
+                            table: { include: { location: true } },
+                            items: { include: { product: true } }
+                        }
                     });
+
+                    // EMIT SOCKET UPDATE
+                    if (req.io) {
+                        // 1. Update existing listeners
+                        req.io.emit('order_update', {
+                            transactionCode: orderId.toString(),
+                            status: 'Paid',
+                            source: 'create-check'
+                        });
+                        req.io.to(orderId.toString()).emit('order_update', {
+                            transactionCode: orderId.toString(),
+                            status: 'Paid',
+                            source: 'create-check-direct'
+                        });
+
+                        // 2. EMIT NEW ORDER (Crucial for Kasir Dashboard if it was hidden)
+                        if (order.status === 'WaitingPayment') {
+                            req.io.emit('new_order', updatedOrder);
+                            if (updatedOrder.storeId) {
+                                req.io.to(`store_${updatedOrder.storeId}`).emit('new_order', updatedOrder);
+                            }
+                            console.log(`📡 'new_order' Emitted for ${orderId} (Recovery)`);
+                        }
+                    }
                 }
 
                 return res.json({ success: true, status: 'Paid', message: 'Transaction verified as Paid' });
@@ -124,10 +149,12 @@ const createTransaction = async (req, res) => {
 // 2. Webhook Handler (Instant Notification)
 const handleCallback = async (req, res) => {
     try {
-        console.log("[Pakasir] Webhook Received:", JSON.stringify(req.body));
+        // DEBUG: Sanitized Log
+        const { order_id, status } = req.body;
+        console.log(`[Pakasir] Webhook Hit for Order: ${order_id}, Status: ${status}`);
 
         // Payload: { project, order_id, amount, status, ... }
-        const { order_id, status } = req.body;
+
 
         if (isSuccessStatus(status)) {
             const order = await prisma.order.findUnique({ where: { transactionCode: order_id.toString() } });
@@ -153,10 +180,18 @@ const handleCallback = async (req, res) => {
                     // EMIT NEW ORDER if it was waiting
                     if (req.io) {
                         // Emit update first
+                        // 1. GLOBAL (Backup)
                         req.io.emit('order_update', {
                             transactionCode: order_id,
                             status: 'Paid',
                             source: 'webhook'
+                        });
+
+                        // 2. SPECIFIC ROOM (Primary for Instant Redirect)
+                        req.io.to(order_id).emit('order_update', {
+                            transactionCode: order_id,
+                            status: 'Paid',
+                            source: 'webhook_direct'
                         });
 
                         // If it was 'WaitingPayment', now treat it as 'new_order' for Kasir
@@ -224,6 +259,7 @@ const checkStatus = async (req, res) => {
 
                 if (req.io) {
                     req.io.emit('order_update', { transactionCode: orderId, status: 'Paid' });
+                    req.io.to(orderId).emit('order_update', { transactionCode: orderId, status: 'Paid', source: 'polling-direct' });
 
                     if (order.status === 'WaitingPayment') {
                         req.io.emit('new_order', updatedOrder);

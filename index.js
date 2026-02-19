@@ -116,6 +116,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  // NEW: Client join specific Transaction Room (for private updates like Payment)
+  socket.on('join_room', (roomName) => {
+    if (roomName) {
+      socket.join(roomName);
+      console.log(`🔌 Socket ${socket.id} joined room: ${roomName}`);
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`❌ Client disconnected: ${socket.id}`);
   });
