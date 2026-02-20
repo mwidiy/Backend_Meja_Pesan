@@ -65,6 +65,8 @@ exports.createTable = async (req, res) => {
         if (!name || !locationId) {
             return res.status(400).json({ error: "Name and Location ID are required" });
         }
+        if (name.length > 30) return res.status(400).json({ error: "Table name must be less than 30 characters" });
+        if (!/^[a-zA-Z0-9 \-]+$/.test(name)) return res.status(400).json({ error: "Table name contains invalid characters" });
         if (!req.storeId) return res.status(400).json({ error: "Access Denied: No Store" });
 
         // SAFETY: Verify location belongs to this store
@@ -108,7 +110,11 @@ exports.updateTable = async (req, res) => {
         if (!exists) return res.status(404).json({ error: "Table not found or access denied" });
 
         const updateData = {};
-        if (name !== undefined) updateData.name = name;
+        if (name !== undefined) {
+            if (name.length > 30) return res.status(400).json({ error: "Table name must be less than 30 characters" });
+            if (!/^[a-zA-Z0-9 \-]+$/.test(name)) return res.status(400).json({ error: "Table name contains invalid characters" });
+            updateData.name = name;
+        }
         if (locationId !== undefined) {
             // If changing location, verify new location ownership
             const validLoc = await prisma.location.findFirst({

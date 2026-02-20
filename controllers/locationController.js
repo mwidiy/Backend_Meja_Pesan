@@ -20,6 +20,8 @@ exports.createLocation = async (req, res) => {
     try {
         const { name } = req.body;
         if (!name) return res.status(400).json({ error: "Name is required" });
+        if (name.length > 50) return res.status(400).json({ error: "Name must be less than 50 characters" });
+        if (!/^[a-zA-Z0-9 \-]+$/.test(name)) return res.status(400).json({ error: "Name contains invalid characters" });
         if (!req.storeId) return res.status(400).json({ error: "Access Denied: No Store" });
 
         const location = await prisma.location.create({
@@ -40,6 +42,11 @@ exports.updateLocation = async (req, res) => {
     try {
         const { id } = req.params;
         const { name } = req.body;
+
+        if (name) {
+            if (name.length > 50) return res.status(400).json({ error: "Name must be less than 50 characters" });
+            if (!/^[a-zA-Z0-9 \-]+$/.test(name)) return res.status(400).json({ error: "Name contains invalid characters" });
+        }
 
         // Ensure location belongs to store
         const exists = await prisma.location.findFirst({

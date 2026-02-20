@@ -44,6 +44,43 @@ const updateStore = async (req, res) => {
         const { name, isOpen, bankName, bankNumber, bankHolder, ewalletType, ewalletNumber, ewalletName, whatsappNumber } = req.body;
         if (!req.storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
+        // --- HARDENING: SERVER-SIDE VALIDATION & SANITIZATION ---
+        const alphanumericSpaceDashRegex = /^[a-zA-Z0-9 \-]+$/;
+        const numericRegex = /^[0-9]+$/;
+        const ewalletTypes = ['Gopay', 'OVO', 'Dana', 'ShopeePay', 'LinkAja'];
+
+        if (name !== undefined) {
+            if (name.length > 50) return res.status(400).json({ error: "Store Name too long (Max 50)" });
+            if (!alphanumericSpaceDashRegex.test(name)) return res.status(400).json({ error: "Store Name contains invalid characters" });
+        }
+        if (bankName !== undefined) {
+            if (bankName.length > 30) return res.status(400).json({ error: "Bank Name too long (Max 30)" });
+            if (bankName.length > 0 && !alphanumericSpaceDashRegex.test(bankName)) return res.status(400).json({ error: "Bank Name contains invalid characters" });
+        }
+        if (bankNumber !== undefined) {
+            if (bankNumber.length > 20) return res.status(400).json({ error: "Bank Number too long (Max 20)" });
+            if (bankNumber.length > 0 && !numericRegex.test(bankNumber)) return res.status(400).json({ error: "Bank Number must be numeric" });
+        }
+        if (bankHolder !== undefined) {
+            if (bankHolder.length > 50) return res.status(400).json({ error: "Bank Holder Name too long (Max 50)" });
+            if (bankHolder.length > 0 && !alphanumericSpaceDashRegex.test(bankHolder)) return res.status(400).json({ error: "Bank Holder Name contains invalid characters" });
+        }
+        if (ewalletType !== undefined) {
+            if (ewalletType.length > 0 && !ewalletTypes.includes(ewalletType)) return res.status(400).json({ error: "Invalid E-Wallet Type" });
+        }
+        if (ewalletNumber !== undefined) {
+            if (ewalletNumber.length > 20) return res.status(400).json({ error: "E-Wallet Number too long (Max 20)" });
+            if (ewalletNumber.length > 0 && !numericRegex.test(ewalletNumber)) return res.status(400).json({ error: "E-Wallet Number must be numeric" });
+        }
+        if (ewalletName !== undefined) {
+            if (ewalletName.length > 50) return res.status(400).json({ error: "E-Wallet Name too long (Max 50)" });
+            if (ewalletName.length > 0 && !alphanumericSpaceDashRegex.test(ewalletName)) return res.status(400).json({ error: "E-Wallet Name contains invalid characters" });
+        }
+        if (whatsappNumber !== undefined) {
+            if (whatsappNumber.length > 20) return res.status(400).json({ error: "WhatsApp Number too long (Max 20)" });
+            if (whatsappNumber.length > 0 && !numericRegex.test(whatsappNumber)) return res.status(400).json({ error: "WhatsApp Number must be numeric" });
+        }
+
         // Update Store
         const updated = await prisma.store.update({
             where: { id: req.storeId },
