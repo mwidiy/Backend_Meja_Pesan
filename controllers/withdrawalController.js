@@ -5,13 +5,13 @@ const crypto = require('crypto');
 const SECRET_KEY = process.env.WITHDRAWAL_SECRET_KEY || 'default_secret_key';
 const WEBHOOK_URL = process.env.PAKASIR_WEBHOOK_URL || 'http://localhost:3000';
 
-// Helper: Calculate Balance
-const calculateBalance = async (storeId) => {
+// Helper: Calculate Balance within Transaction (or normal client if tx not provided)
+const calculateBalance = async (storeId, prismaClient = prisma) => {
     const now = new Date();
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
 
     // 1. Cold Income (Paid > 24h ago) -> AVAILABLE for Withdrawal
-    const coldIncomeAgg = await prisma.order.aggregate({
+    const coldIncomeAgg = await prismaClient.order.aggregate({
         _sum: { totalAmount: true },
         where: {
             storeId: storeId,
@@ -24,7 +24,7 @@ const calculateBalance = async (storeId) => {
     const coldIncome = coldIncomeAgg._sum.totalAmount || 0;
 
     // 2. Hot Income (Paid <= 24h ago) -> PENDING Settlement
-    const hotIncomeAgg = await prisma.order.aggregate({
+    const hotIncomeAgg = await prismaClient.order.aggregate({
         _sum: { totalAmount: true },
         where: {
             storeId: storeId,
@@ -38,7 +38,7 @@ const calculateBalance = async (storeId) => {
 
     // 3. Total Withdrawals (Pending + Approved)
     // Withdrawals reduce the AVAILABLE (Cold) balance.
-    const totalWithdrawalAgg = await prisma.withdrawal.aggregate({
+    const totalWithdrawalAgg = await prismaClient.withdrawal.aggregate({
         _sum: { amount: true },
         where: {
             storeId: storeId,
@@ -59,7 +59,8 @@ const calculateBalance = async (storeId) => {
 // GET /api/withdraw/balance
 const getBalance = async (req, res) => {
     try {
-        const storeId = identifyStore(req);
+        // SECURITY FIX (IDOR): Strictly use verified JWT Token ID, ignore URL params
+        const storeId = req.storeId;
         if (!storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
         const balances = await calculateBalance(storeId);
@@ -78,7 +79,8 @@ const getBalance = async (req, res) => {
 // POST /api/withdraw/request
 const requestWithdrawal = async (req, res) => {
     try {
-        const storeId = identifyStore(req);
+        // SECURITY FIX (IDOR): Strictly use verified JWT Token ID, ignore URL params
+        const storeId = req.storeId;
         if (!storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
         const { amount, method } = req.body; // method: "Bank" or "ShopeePay"
@@ -87,52 +89,71 @@ const requestWithdrawal = async (req, res) => {
             return res.status(400).json({ error: "Nominal penarikan tidak valid" });
         }
 
-        // 1. Cek Saldo Cukup (ONLY AVAILABLE BALANCE)
-        const balances = await calculateBalance(storeId);
-        if (amount > balances.available) {
-            return res.status(400).json({
-                error: "Saldo Saldo Cair tidak mencukupi (Cek Saldo Tertahan)"
+        // HARDENING LIMITS
+        if (amount < 50000) return res.status(400).json({ error: "Minimal penarikan Rp 50.000" });
+        if (amount > 3000000) return res.status(400).json({ error: "Maksimal penarikan Rp 3.000.000" });
+
+        // TRANSACTION HARDENING (Prevent Race Conditions)
+        const withdrawal = await prisma.$transaction(async (tx) => {
+            // 1. Initial State Check
+            const balances = await calculateBalance(storeId, tx);
+            if (amount > balances.available) {
+                throw new Error("Saldo Saldo Cair tidak mencukupi (Cek Saldo Tertahan)");
+            }
+
+            // 2. Ambil Info Bank / E-Wallet
+            const store = await tx.store.findUnique({ where: { id: storeId } });
+            let targetBankName, targetAccountNumber, targetAccountName, withdrawalMethod;
+
+            if (method === "ShopeePay") {
+                if (!store.ewalletNumber || !store.ewalletName) {
+                    throw new Error("Data E-Wallet belum lengkap di profil");
+                }
+                targetBankName = store.ewalletType || "E-Wallet";
+                targetAccountNumber = store.ewalletNumber;
+                targetAccountName = store.ewalletName;
+                withdrawalMethod = "E-Wallet";
+            } else {
+                if (!store.bankName || !store.bankNumber || !store.bankHolder) {
+                    throw new Error("Data Bank belum lengkap di profil");
+                }
+                targetBankName = store.bankName;
+                targetAccountNumber = store.bankNumber;
+                targetAccountName = store.bankHolder;
+                withdrawalMethod = "Bank Transfer";
+            }
+
+            // 3. Create the withdrawal record (This reduces the available balance in real-time within the TX)
+            const newWithdrawal = await tx.withdrawal.create({
+                data: {
+                    storeId,
+                    amount: parseInt(amount),
+                    method: withdrawalMethod,
+                    status: "Pending",
+                    bankName: targetBankName,
+                    accountNumber: targetAccountNumber,
+                    accountName: targetAccountName
+                }
             });
-        }
 
-        // 2. Ambil Info Bank dari Store untuk Snapshot
-        const store = await prisma.store.findUnique({ where: { id: storeId } });
+            // 4. Double Validation Check (Ensures concurrent requests didn't drain balance)
+            const postBalances = await calculateBalance(storeId, tx);
 
-        let targetBankName, targetAccountNumber, targetAccountName, withdrawalMethod;
+            // Re-evaluating based on strict coldIncome - totalWithdrawn
+            const strictAvailable = (postBalances.available === 0 && (postBalances.totalWithdrawn > 0))
+                ? await tx.order.aggregate({ _sum: { totalAmount: true }, where: { storeId: storeId, paymentMethod: 'qris', paymentStatus: { equals: 'Paid', mode: 'insensitive' }, status: { not: 'Cancelled' }, createdAt: { lte: new Date(new Date().getTime() - 24 * 60 * 60 * 1000) } } }).then(res => (res._sum.totalAmount || 0)) - postBalances.totalWithdrawn
+                : postBalances.available;
 
-        if (method === "ShopeePay") {
-            if (!store.ewalletNumber || !store.ewalletName) {
-                return res.status(400).json({ error: "Data E-Wallet belum lengkap di profil" });
+            if (strictAvailable < 0) {
+                // The aggregate function above calculates the raw balance (can be negative).
+                // If raw balance goes below 0 after insert, we rollback!
+                throw new Error("TRANSACTION_FAILED: Race condition detected. Saldo minus.");
             }
-            targetBankName = store.ewalletType || "E-Wallet"; // Dynamic Type
-            targetAccountNumber = store.ewalletNumber;
-            targetAccountName = store.ewalletName;
-            withdrawalMethod = "E-Wallet";
-        } else {
-            // Default to Bank
-            if (!store.bankName || !store.bankNumber || !store.bankHolder) {
-                return res.status(400).json({ error: "Data Bank belum lengkap di profil" });
-            }
-            targetBankName = store.bankName;
-            targetAccountNumber = store.bankNumber;
-            targetAccountName = store.bankHolder;
-            withdrawalMethod = "Bank Transfer";
-        }
 
-        // 3. Buat Request
-        const withdrawal = await prisma.withdrawal.create({
-            data: {
-                storeId,
-                amount: parseInt(amount),
-                method: withdrawalMethod,
-                status: "Pending",
-                bankName: targetBankName,
-                accountNumber: targetAccountNumber,
-                accountName: targetAccountName
-            }
+            return newWithdrawal;
         });
 
-        // 4. Send Telegram Notification (With One-Click Action)
+        // 5. Send Telegram Notification (Outside Transaction)
         const tokenApprove = crypto.createHmac('sha256', SECRET_KEY).update(`${withdrawal.id}approve`).digest('hex');
         const tokenReject = crypto.createHmac('sha256', SECRET_KEY).update(`${withdrawal.id}reject`).digest('hex');
 
@@ -141,9 +162,9 @@ const requestWithdrawal = async (req, res) => {
 
         const message = `
 <b>🔔 NEW WITHDRAWAL!</b>
-Method: ${withdrawalMethod}
-User: ${targetAccountName}
-Bank/E-Wallet: ${targetBankName} - ${targetAccountNumber}
+Method: ${withdrawal.method}
+User: ${withdrawal.accountName}
+Bank/E-Wallet: ${withdrawal.bankName} - ${withdrawal.accountNumber}
 Jumlah: Rp ${new Intl.NumberFormat('id-ID').format(withdrawal.amount)}
 
 👇 <b>KLIK UNTUK PROSES:</b>
@@ -151,13 +172,20 @@ Jumlah: Rp ${new Intl.NumberFormat('id-ID').format(withdrawal.amount)}
 <a href="${linkReject}">❌ TOLAK</a>
         `;
 
-        // Panggil fungsi tanpa await agar tidak memblokir response jika koneksi lambat
         const { sendTelegramNotification } = require('../utils/telegramBot');
         sendTelegramNotification(message);
 
         res.json({ success: true, data: withdrawal });
     } catch (error) {
         console.error("Withdrawal Request Error:", error);
+
+        // Custom message mapping from transaction errors
+        if (error.message.includes("Data E-Wallet") || error.message.includes("Data Bank") || error.message.includes("mencukupi")) {
+            return res.status(400).json({ error: error.message });
+        }
+        if (error.message.includes("TRANSACTION_FAILED")) {
+            return res.status(400).json({ error: "Sistem sibuk, silakan coba lagi (Error: -1)" });
+        }
         res.status(500).json({ error: "Failed to create withdrawal request" });
     }
 };
@@ -165,7 +193,8 @@ Jumlah: Rp ${new Intl.NumberFormat('id-ID').format(withdrawal.amount)}
 // GET /api/withdraw/history
 const getHistory = async (req, res) => {
     try {
-        const storeId = identifyStore(req);
+        // SECURITY FIX (IDOR): Strictly use verified JWT Token ID, ignore URL params
+        const storeId = req.storeId;
         if (!storeId) return res.status(400).json({ error: 'User tidak memiliki akses Toko' });
 
         const history = await prisma.withdrawal.findMany({

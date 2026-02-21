@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bannerController = require('../controllers/bannerController');
-const upload = require('../middleware/upload');
+const { uploadImage } = require('../middleware/upload');
 
 const { verifyToken } = require('../middleware/authMiddleware');
 
@@ -10,10 +10,10 @@ router.get('/', bannerController.getAllBanners);
 
 // Protected Routes (Require Authentication)
 // POST /api/banners -> upload.single('image'), createBanner
-router.post('/', verifyToken, upload.single('image'), bannerController.createBanner);
+router.post('/', verifyToken, uploadImage.single('image'), bannerController.createBanner);
 
 // PUT /api/banners/:id -> upload.single('image'), updateBanner
-router.put('/:id', verifyToken, upload.single('image'), bannerController.updateBanner);
+router.put('/:id', verifyToken, uploadImage.single('image'), bannerController.updateBanner);
 
 // DELETE /api/banners/:id -> deleteBanner
 router.delete('/:id', verifyToken, bannerController.deleteBanner);
