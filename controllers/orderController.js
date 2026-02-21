@@ -409,7 +409,10 @@ const getOrderById = async (req, res) => {
 
 const getOrderByTransactionCode = async (req, res) => {
     try {
-        const { code } = req.params;
+        let { code } = req.params;
+        // SECURITY: Limit length and eliminate complex characters
+        code = String(code || '').substring(0, 50).replace(/[<>{}\'";=\\]/g, '').trim();
+
         const order = await prisma.order.findUnique({
             where: { transactionCode: code },
             include: {
@@ -622,7 +625,10 @@ const approveCancel = async (req, res) => {
 const rejectCancel = async (req, res) => {
     try {
         const { id } = req.params;
-        const { reason } = req.body;
+        let { reason } = req.body;
+
+        // SECURITY: Sanitize cancellation reason (Max 150 chars, no HTML tags)
+        reason = String(reason || '').substring(0, 150).replace(/[<>{}\[\]]/g, '').trim();
 
         console.log(`[DEBUG] Received Reject/Cancel for Order ${id}`);
         console.log(`[DEBUG] Reason provided: ${reason}`);
