@@ -1,8 +1,18 @@
 require('dotenv').config(); // Load environment variables dari .env
+
+// --- SECURITY CHECK ---
+if (!process.env.JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET di file .env lu KOSONG BRO!");
+  console.error("Server DIMATIKAN PAKSA demi keamanan Kasir lu.");
+  process.exit(1);
+}
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http'); // Import HTTP
 const { Server } = require("socket.io"); // Import Socket.IO
+const rateLimit = require('express-rate-limit'); // NEW: Import Rate Limiter
+
 const productRoutes = require('./routes/productRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
 
@@ -20,31 +30,60 @@ const PORT = process.env.PORT || 3000;
 
 // --- MIDDLEWARE ---
 app.use((req, res, next) => {
-  console.log(`[GLOBAL_LOG] ${req.method} ${req.url}`);
+  // Hanya nge-log kalau lagi masa development (Biar RAM server production enteng)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[GLOBAL_LOG] ${req.method} ${req.url}`);
+  }
   next();
 });
 
+// --- GLOBAL RATE LIMITER (ANTI DDOS & SPAM) ---
+// Membatasi maksimal 300 request per 5 menit dari 1 IP
+const globalLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 menit
+  max: 300, // Limit setiap IP maksimal 300 request per windowMs
+  message: {
+    success: false,
+    message: "Terdeteksi aktivitas spam/DDoS. Anda diblokir sementara selama 5 Menit. Harap tunggu."
+  },
+  standardHeaders: true, // Kirim info limit di header (RateLimit-*)
+  legacyHeaders: false, // Matikan header `X-RateLimit-*` lama
+});
+
+// Pasang Satpam (Limiter) HANYA untuk semua jalur API (bukan gambar/assets)
+app.use('/api/', globalLimiter);
+
 app.use(cors({
-  // CORS Otomatis: Izinkan Localhost & Semua IP 192.168.x.x (Local Network)
+  // CORS Dinamis (Lebih Aman!)
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, or Postman)
+    // 1. Kasir Android & Postman (Tanpa Origin) diizinkan karena pake perlindungan JWT
     if (!origin || origin === 'null') return callback(null, true);
 
-    // Allow localhost and any 192.168.*.*
-    if (origin.match(/^http:\/\/localhost/) || origin.match(/^http:\/\/192\.168\./)) {
-      return callback(null, true);
+    // 2. Baca daftar VIP dari .env (Bisa koma-dipisah kalau lebih dari 1)
+    const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : [];
+
+    // 3. Tambahkan Localhost otomatis buat testing Lokal lu
+    allowedOrigins.push('http://localhost:3000');
+    allowedOrigins.push('https://quacxel.my.id');
+    allowedOrigins.push('https://www.quacxel.my.id');
+
+    // 4. Cek apakah KTP (Origin) tamu ada di daftar VIP
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true); // Masuk!
     }
 
-    // Fallback: Allow all (Dev Mode - Safe for internal network)
-    return callback(null, true);
+    // 5. Tendang web jahat
+    console.error(`[BLOCKED_BY_CORS] Website asing mencoba akses: ${origin}`);
+    return callback(new Error('Akses Ditolak Server (Tidak Sah)'), false);
   },
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));
-app.use(express.json({ limit: '50mb' })); // Supaya bisa baca data JSON besar
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-// app.use(express.static('public')); // MOVED DOWN: Static must be AFTER custom logic to prevent shadowing
-// app.use('/uploads', express.static('public/images')); // MOVED DOWN
+
+// PRIORITAS 4: Batasi ukuran teks JSON dari 50MB jadi 2MB (Anti Payload Bomb)
+// Ingat: Upload Image & AR (.glb) tetap aman karena diproses terpisah oleh Multer!
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
 // DEBUG: Ultimate Serving with res.sendFile
 app.use('/ar-assets', (req, res, next) => {
@@ -149,6 +188,28 @@ app.use('/api/store', require('./routes/storeRoutes'));
 app.use('/api/auth', require('./routes/authRoutes')); // NEW: Google Login Route
 app.use('/api/payment', require('./routes/paymentRoutes')); // Duitku Payment
 app.use('/api/withdraw', require('./routes/withdrawalRoutes')); // NEW: Withdrawal
+
+// --- PRIORITAS 5: GLOBAL ERROR HANDLER (PENUTUP AIB) ---
+// Middleware ini ditaruh PALING BAWAH setelah semua Route.
+// Tugasnya nangkep semua error (biar server ngga crash) dan nyembunyiin Traceback dari Hacker.
+app.use((err, req, res, next) => {
+  console.error(`[CRITICAL_ERROR] ${err.message}`);
+
+  if (process.env.NODE_ENV === 'production') {
+    // Mode Production: Kasih pesan general/sopan
+    res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan sistem internal. Tim IT sedang menanganinya."
+    });
+  } else {
+    // Mode Lokal: Boleh kasih liat error aslinya buat programmer
+    res.status(500).json({
+      success: false,
+      message: err.message,
+      stack: err.stack
+    });
+  }
+});
 
 // --- MENJALANKAN SERVER ---
 // Ganti app.listen jadi server.listen

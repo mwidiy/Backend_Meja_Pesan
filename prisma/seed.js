@@ -2,84 +2,92 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function main() {
-  const categories = ["Makanan", "Minuman", "Cemilan", "Paket"];
+  console.log('Start seeding...');
 
-  console.log('Start seeding categories...');
-
-  for (const categoryName of categories) {
-    const category = await prisma.category.upsert({
-      where: { name: categoryName },
-      update: {},
-      create: {
-        name: categoryName,
-      },
+  // 1. Create Default Owner
+  let owner = await prisma.user.findUnique({ where: { email: 'admin@kasir.com' } });
+  if (!owner) {
+    owner = await prisma.user.create({
+      data: {
+        email: 'admin@kasir.com',
+        name: 'Admin Kasir',
+        role: 'owner'
+      }
     });
-    console.log(`Verifying category: ${category.name}`);
+    console.log('Created default owner admin@kasir.com');
   }
 
-  // Seeding Locations
+  // 2. Create Default Store
+  let store = await prisma.store.findUnique({ where: { ownerId: owner.id } });
+  if (!store) {
+    store = await prisma.store.create({
+      data: {
+        name: 'Kantin Utama',
+        ownerId: owner.id
+      }
+    });
+    console.log('Created default store Kantin Utama');
+  }
+
+  const storeId = store.id;
+
+  // 3. Seed Categories
+  const categories = ["Makanan", "Minuman", "Cemilan", "Paket"];
+  console.log('Start seeding categories...');
+  for (const categoryName of categories) {
+    let cat = await prisma.category.findFirst({
+      where: { name: categoryName, storeId }
+    });
+    if (!cat) {
+      cat = await prisma.category.create({
+        data: { name: categoryName, storeId }
+      });
+      console.log(`Created category: ${cat.name}`);
+    } else {
+      console.log(`Verified category: ${cat.name}`);
+    }
+  }
+
+  // 4. Seed Locations
   const locations = ["Indoor", "Outdoor", "Lantai 2", "VIP"];
   console.log('Start seeding locations...');
-
   for (const locationName of locations) {
-    const location = await prisma.location.upsert({
-      where: { name: locationName },
-      update: {},
-      create: {
-        name: locationName,
-      },
+    let loc = await prisma.location.findFirst({
+      where: { name: locationName, storeId }
     });
-    console.log(`Verifying location: ${location.name}`);
+    if (!loc) {
+      loc = await prisma.location.create({
+        data: { name: locationName, storeId }
+      });
+      console.log(`Created location: ${loc.name}`);
+    } else {
+      console.log(`Verified location: ${loc.name}`);
+    }
   }
 
-  // Seeding Special Table for Takeaway/Delivery
+  // 5. Seed Special Table
   console.log('Seeding special table: Counter Pickup...');
-  const indoorLocation = await prisma.location.findUnique({
-    where: { name: 'Indoor' }
+  const indoorLocation = await prisma.location.findFirst({
+    where: { name: 'Indoor', storeId }
   });
 
   if (indoorLocation) {
-    await prisma.table.upsert({
-      where: { qrCode: 'COUNTER-PICKUP' },
-      update: {},
-      create: {
-        name: 'Counter Pickup',
-        qrCode: 'COUNTER-PICKUP',
-        locationId: indoorLocation.id,
-        isActive: true
-      }
+    let table = await prisma.table.findUnique({
+      where: { qrCode: 'COUNTER-PICKUP' }
     });
-    console.log('Counter Pickup table verified.');
-  } else {
-    console.log('Warning: Indoor location not found, skipping Counter Pickup table.');
-  }
-
-  // Update Prep Times (Smart Queue Setup)
-  console.log('Updating Prep Times...');
-  // Minuman & Cemilan -> 2 mins (Fast Lane matches)
-  const lowCategories = await prisma.category.findMany({
-    where: { name: { in: ['Minuman', 'Cemilan'] } }
-  });
-  if (lowCategories.length > 0) {
-    const ids = lowCategories.map(c => c.id);
-    await prisma.product.updateMany({
-      where: { categoryId: { in: ids } },
-      data: { prepTime: 3 } // <= 5 mins
-    });
-    console.log('Set PrepTime 3 mins for Minuman/Cemilan');
-  }
-
-  // Makanan -> 15 mins (Regular Lane)
-  const highCategories = await prisma.category.findMany({
-    where: { name: 'Makanan' }
-  });
-  if (highCategories.length > 0) {
-    const ids = highCategories.map(c => c.id);
-    await prisma.product.updateMany({
-      where: { categoryId: { in: ids } },
-      data: { prepTime: 15 } // > 5 mins
-    });
-    console.log('Set PrepTime 15 mins for Makanan');
+    if (!table) {
+      table = await prisma.table.create({
+        data: {
+          name: 'Counter Pickup',
+          qrCode: 'COUNTER-PICKUP',
+          locationId: indoorLocation.id,
+          isActive: true
+        }
+      });
+      console.log('Created Counter Pickup table.');
+    } else {
+      console.log('Counter Pickup table verified.');
+    }
   }
 
   console.log('Seeding finished.');

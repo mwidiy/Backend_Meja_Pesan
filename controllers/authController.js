@@ -81,7 +81,7 @@ const googleLogin = async (req, res) => {
                 role: user.role,
                 storeId: user.store?.id
             },
-            process.env.JWT_SECRET || 'rahasia_negara_api',
+            process.env.JWT_SECRET,
             { expiresIn: '30d' }
         );
 
